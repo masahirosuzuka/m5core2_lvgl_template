@@ -39,18 +39,18 @@
 
 - lv_conf.h
 
-  - 本ファイルはlibdeps/m5stack-core-esp32/lvglフォルダに移動すること
+  - 本ファイルは.pio/libdeps/m5stack-core-esp32/lvglフォルダに移動すること
 
-- fonts/mplus1_STYLE_POINT.c
+- fonts/mplus1_STYLE/mplus1_STYLE_POINT.c
 
   - 日本語表示が必要な場合のみ下記の手順で利用すること
-  - 本ファイルはlibdeps/m5stack-core-esp32/lvgl/src/fontフォルダに移動すること
+  - 本ファイルは.pio/libdeps/m5stack-core-esp32/lvgl/src/fontフォルダに移動すること
   - 末尾の数字はフォントのポイント数。必要なフォントのみ移動すること
 
 - fonts/fonts.mk
 
   - 日本語表示が必要な場合のみ下記の手順で利用すること
-  - 本ファイルはlibdeps/m5stack-core-esp32/lvgl/src/fontフォルダの同名ファイルと入れ替えること
+  - 本ファイルは.pio/libdeps/m5stack-core-esp32/lvgl/src/fontフォルダの同名ファイルと入れ替えること
   - 末尾にmplus1_STYLE_POINT.cをSRCSに追記している。手作業で追記する場合は入れ替えは不要
   - Lightスタイルの14ポイントを追加する場合はこちらを32行目付近に追記
 
