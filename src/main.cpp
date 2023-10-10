@@ -107,8 +107,7 @@ void setup()
 
   lv_obj_t* wifiLabel = lv_label_create(connectionTabContainer);
   lv_obj_add_style(wifiLabel, &style, 0);
-  //lv_label_set_text(wifiLabel, "WiFi");
-  lv_label_set_text(wifiLabel, "あいうえおほげ");
+  lv_label_set_text(wifiLabel, "WiFi");
   lv_obj_set_pos(wifiLabel, 0, 0);
 
   lv_obj_t* ssidLabel = lv_label_create(connectionTabContainer);
