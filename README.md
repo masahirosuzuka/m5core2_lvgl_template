@@ -50,6 +50,7 @@
 - fonts/fonts.mk
 
   - 日本語表示が必要な場合のみ下記の手順で利用すること
+  - 含まれている文字はこちらを参照 : https://gist.github.com/masahirosuzuka/7814737cb875b7ae0840cbf117de97da
   - 本ファイルは.pio/libdeps/m5stack-core-esp32/lvgl/src/fontフォルダの同名ファイルと入れ替えること
   - 末尾にmplus1_STYLE_POINT.cをSRCSに追記している。手作業で追記する場合は入れ替えは不要
   - Lightスタイルの14ポイントを追加する場合はこちらを32行目付近に追記
