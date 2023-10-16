@@ -15,13 +15,12 @@ static LGFX lcd;
 
 void disp_flush( lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p )
 {
-    int32_t width = area->x2 - area->x1 + 1;
-    int32_t height = area->y2 - area->y1 + 1;
-    lcd.setAddrWindow(area->x1, area->y1,
-                      width, height);
-    lcd.pushPixels((uint16_t*)color_p, width * height, true);
+  int32_t width = area->x2 - area->x1 + 1;
+  int32_t height = area->y2 - area->y1 + 1;
+  lcd.setAddrWindow(area->x1, area->y1, width, height);
+  lcd.pushPixels((uint16_t*)color_p, width * height, true);
 
-    lv_disp_flush_ready(disp);
+  lv_disp_flush_ready(disp);
 }
 
 void touchpad_read( lv_indev_drv_t * indev_driver, lv_indev_data_t * data )
