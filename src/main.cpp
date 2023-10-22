@@ -13,6 +13,9 @@ static lv_disp_draw_buf_t draw_buf;
 static lv_color_t buf[ screenWidth * 10 ];
 static LGFX lcd;
 
+static lv_obj_t* rootScreen;
+static lv_obj_t* keyboard;
+
 void disp_flush( lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p )
 {
   int32_t width = area->x2 - area->x1 + 1;
@@ -36,6 +39,25 @@ void touchpad_read( lv_indev_drv_t * indev_driver, lv_indev_data_t * data )
 
 void open_keyboard()
 {
+  if (keyboard == NULL) {
+    keyboard = lv_keyboard_create(rootScreen);
+  }
+}
+
+static void textarea_event_cb( lv_event_t * event )
+{
+  lv_event_code_t code = lv_event_get_code(event);
+  lv_obj_t* textarea = lv_event_get_target(event);
+  if(code == LV_EVENT_FOCUSED) {
+    open_keyboard();
+    lv_keyboard_set_textarea(keyboard, textarea);
+    lv_obj_clear_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  if(code == LV_EVENT_DEFOCUSED) {
+    lv_keyboard_set_textarea(keyboard, NULL);
+    lv_obj_add_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+  }
 }
 
 void setup()
@@ -78,7 +100,7 @@ void setup()
   //static lv_obj_t* loginScreen = lv_scr_act();
   //lv_obj_t* loginPage = lv_obj_create(loginScreen);
 
-  static lv_obj_t* rootScreen = lv_scr_act();
+  rootScreen = lv_scr_act();
 
   lv_obj_t* tabView = lv_tabview_create(rootScreen, LV_DIR_LEFT, tabWidth);
 
@@ -128,6 +150,7 @@ void setup()
   lv_textarea_set_one_line(passwordTextarea, true);
   lv_obj_set_width(passwordTextarea, 140);
   lv_obj_set_pos(passwordTextarea, 50, 70);
+  lv_obj_add_event_cb(passwordTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_t* mqttLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(mqttLabel, "MQTT");
@@ -142,6 +165,7 @@ void setup()
   lv_textarea_set_one_line(urlTextarea, true);
   lv_obj_set_width(urlTextarea, 140);
   lv_obj_set_pos(urlTextarea, 50, 150);
+  lv_obj_add_event_cb(urlTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_t* portLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(portLabel, "PORT");
@@ -152,6 +176,7 @@ void setup()
   lv_textarea_set_one_line(portTextarea, true);
   lv_obj_set_width(portTextarea, 140);
   lv_obj_set_pos(portTextarea, 50, 190);
+  lv_obj_add_event_cb(portTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_t* certLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(certLabel, "Certification");
