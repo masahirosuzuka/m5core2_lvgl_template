@@ -53,8 +53,16 @@
   - 含まれている文字はこちらを参照 : https://gist.github.com/masahirosuzuka/7814737cb875b7ae0840cbf117de97da
   - 本ファイルは.pio/libdeps/m5stack-core-esp32/lvgl/src/fontフォルダの同名ファイルと入れ替えること
   - 末尾にmplus1_STYLE_POINT.cをSRCSに追記している。手作業で追記する場合は入れ替えは不要
-  - 例）Lightスタイルの14ポイントを追加する場合はこちらを32行目付近に追記
+  - 例）Lightスタイルの14ポイントを追加する場合は
+  
+  1. 下記を.pio/libdeps/m5stack-core-esp32/lvgl/src/font/fonts.mkの32行目付近に追記
 
   ```makefile
   CSRCS += mplus1_light_14.c
+  ```
+
+  2. 下記を.pio/libdeps/m5stack-core-esp32/lvgl/src/font/fonts.hの246行目付近に追加
+  
+  ```c
+  LV_FONT_DECLARE(mplus1_light_12)
   ```
