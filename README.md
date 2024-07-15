@@ -64,5 +64,5 @@
   2. 下記を.pio/libdeps/m5stack-core-esp32/lvgl/src/font/fonts.hの246行目付近に追加
   
   ```c
-  LV_FONT_DECLARE(mplus1_light_12)
+  LV_FONT_DECLARE(mplus1_light_14)
   ```
