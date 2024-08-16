@@ -1,53 +1,124 @@
 #include <M5Core2.h>
 #include <Preferences.h>
+#include <lwip/ip.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
-#include <BLEDevice.h>
+#include <NimBLEDevice.h>
+#include <TinyGPSPlus.h>
 #include "time.h"
 #include <lvgl.h>
 #include <LovyanGFX.hpp>
 #include <LGFX_AUTODETECT.hpp>
 #include "lv_port_fs_sd.hpp"
 
-#define JST 3600*9
+#define JST 3600 * 9
 
 // Preference
 Preferences preferences;
 
+// SystemBar
+PROGMEM static const char * systemBarFormat = "%s %d%%";
+char systemBarMessage[16];
+
 // Status
-static const char * statusBarFormat = "YYYY/MM/DD 00:00 %s %d%%";
-char status[64] = { 0 };
+bool ready = false;
+PROGMEM static const char * booting = "booting...";
+PROGMEM static const char * stopped = "Stopped...";
+PROGMEM static const char * running = "Running...";
 
 // WiFi
-static const char * ssidKey = "ssid";
-static const char * passKey = "pass";
+PROGMEM static const char * ssidKey = "ssid";
+PROGMEM static const char * passKey = "pass";
 
 char ssid[33] = { 0 };
 char pass[65] = { 0 };
 String ssids = "";
 
-// Certification
+PROGMEM static const IPAddress googleDNS(8, 8, 8, 8);
+PROGMEM static const IPAddress googleDNS2(8, 8, 4, 4);
+
+// NTP
+PROGMEM char * ntpKey = "ntp";
+PROGMEM char * nictNTP = "ntp.nict.jp";
+PROGMEM char * mfeedNTP = "ntp.jst.mfeed.ad.jp";
 
 // MQTT
+PROGMEM static const char * urlKey = "url";
+PROGMEM static const char * portKey = "port";
+PROGMEM static const char * topicKey = "topic";
+
+char url[64];
+int port = 0;
+
+WiFiClientSecure wifiClientSecure = WiFiClientSecure();
+PubSubClient mqttClient = PubSubClient(wifiClientSecure);
+
+char topic[64];
+PROGMEM static const char * notificationTopic = "notification";
+char message[128];
+
+// Cert
+const char * rootCAKey = "rootCA";
+const char * certKey = "cert";
+const char * keyKey = "key";
+
+char * rootCA;
+char * cert;
+char * key;
 
 // BLE
-BLEScan* bleScan;
+PROGMEM const char * activeScanKey = "activeScan";
+PROGMEM const char * rssiThresholdKey = "rssiThreshold";
+NimBLEScan * bleScan;
+PROGMEM const int scanTime = 3;
+PROGMEM const int scanInterval = scanTime * 1000;
+PROGMEM const int scanWindow = scanInterval - 100;
+bool activeScan = false;
+int rssiThreshold = -100;
+
+//GPS
+PROGMEM const char * gnssKey = "gnss";
+bool gnss;
+TinyGPSPlus gps = TinyGPSPlus();
 
 // LVGL
-static const uint16_t screenWidth  = 320;
-static const uint16_t screenHeight = 240;
-static const uint16_t tabWidth = 50;
-static const uint16_t padding = 10;
+PROGMEM static const uint16_t screenWidth  = 320;
+PROGMEM static const uint16_t screenHeight = 240;
+PROGMEM static const uint16_t tabWidth = 50;
+PROGMEM static const uint16_t padding = 10;
+
+PROGMEM static const char * wifiText = "WiFi";
+PROGMEM static const char * ssidText = "SSID";
+PROGMEM static const char * passText = "PASS";
+PROGMEM static const char * mqttText = "MQTT";
+PROGMEM static const char * urlText = "URL";
+PROGMEM static const char * portText = "PORT";
+PROGMEM static const char * topicText = "TOPIC";
+PROGMEM static const char * certText = "Cert";
+PROGMEM static const char * rootCAText = "Root";
+PROGMEM static const char * keyText = "Key";
+PROGMEM static const char * ntpText = "NTP";
+PROGMEM static const char * bluetoothText = "Bluetooth";
+PROGMEM static const char * activeScanText = "Active";
+PROGMEM static const char * rssiText = "RSSI";
+PROGMEM static const char * gpsText = "GPS";
+PROGMEM static const char * enableText = "Enable";
+PROGMEM static const char * saveText = "Save";
+PROGMEM static const char * okText = "OK";
+PROGMEM static const char * cancelText = "Cancel";
 
 static lv_disp_draw_buf_t draw_buf;
-static lv_color_t buf[ screenWidth * 10 ];
+static lv_color_t buf[ screenWidth * 3 ];
 static LGFX lcd;
 
-static lv_obj_t* rootScreen;
-static lv_obj_t* statusBar;
-static lv_obj_t* keyboard;
+static lv_obj_t * rootScreen;
+static lv_obj_t * systemBar;
+static lv_obj_t * status;
+static lv_obj_t * keyboard;
+lv_obj_t * messageBox;
 
 void disp_flush( lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p )
 {
@@ -100,46 +171,161 @@ int getBattLevel() {
   return (int)batPercentage;
 }
 
-void updateStatusBar() {
-  if (statusBar != NULL) {
+unsigned long getTime() {
+  time_t now;
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    return(0);
+  }
+  time(&now);
+  return now;
+}
+
+void updateSystemBar() {
+  if (systemBar != NULL) {
     bool connected = WiFi.isConnected();
     int battLevel = getBattLevel();
-    sprintf(status, statusBarFormat, connected ? LV_SYMBOL_WIFI : " ", battLevel);
-    lv_label_set_text(statusBar, status);
+    sprintf(systemBarMessage, systemBarFormat, connected ? LV_SYMBOL_WIFI : " ", battLevel);
+    lv_label_set_text(systemBar, systemBarMessage);
   }
 }
+
+void updateStatus() {
+  if (status != NULL) {
+    if (WiFi.isConnected() && mqttClient.connected()) {
+      lv_label_set_text(status, running);
+    } else {
+      lv_label_set_text(status, stopped);
+    }
+  }
+}
+
+void mqttCallback(const char* topic, byte* payload, unsigned int length) {
+  Serial.print(topic);
+  Serial.print(" : ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.print("\n");
+}
+
+class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks {
+  void onResult(NimBLEAdvertisedDevice *advertisedDevice) {
+    int rssi = advertisedDevice->getRSSI();
+    if (rssi >= rssiThreshold) {
+      if (mqttClient.connected()) {
+        String bluetoothAddress = "";
+        for (int i = 0; i < advertisedDevice->getAddress().toString().length(); i++) {
+          if (advertisedDevice->getAddress().toString()[i] != ':') {
+            bluetoothAddress += advertisedDevice->getAddress().toString()[i];
+          }
+        }
+        bluetoothAddress.toUpperCase();
+
+        String gatewayAddress = "";
+        for (int i = 0; i < WiFi.macAddress().length(); i++) {
+          if (WiFi.macAddress()[i] != ':') {
+            gatewayAddress += WiFi.macAddress()[i];
+          }
+        }
+        gatewayAddress.toUpperCase();
+
+        String payload = "";
+        for (int i = 0; i < advertisedDevice->getPayloadLength(); i++) {
+          payload += String(advertisedDevice->getPayload()[i], HEX);
+        }
+        payload.toUpperCase();
+
+        sprintf(message, "%s,%s,%s,%d,%ld", 
+                bluetoothAddress.c_str(),
+                gatewayAddress.c_str(),
+                payload.c_str(),
+                rssi,
+                getTime());
+        mqttClient.publish(topic, message);
+      }
+    }
+    delay(5);
+  }
+};
 
 void setup()
 {
   M5.begin(true, true, true, true);
-  Serial.begin( 115200 );
-
-  preferences.begin("m5core2_app", false);
+  Serial.begin(115200);
 
   // Restore preferences
+  preferences.begin("m5core2_app", false);
   sprintf(ssid, "%s", preferences.getString(ssidKey).c_str());
   sprintf(pass, "%s", preferences.getString(passKey).c_str());
   Serial.printf("ssid : %s  pass : %s\n", ssid, pass);
 
+  sprintf(url, "%s", preferences.getString(urlKey).c_str());
+  port = preferences.getInt(portKey, port);
+  sprintf(topic, "%s", preferences.getString(topicKey).c_str());
+  Serial.printf("mqttUrl : %s  port : %d topic : %s\n", url, port, topic);
+
+  int rootCASize = preferences.getString(rootCAKey).length();
+  if (rootCASize > 0) {
+    rootCA = (char *)ps_malloc(rootCASize + 1);
+    sprintf(rootCA, preferences.getString(rootCAKey).c_str());
+    rootCA[rootCASize + 1] = '\0';
+    Serial.printf("rootCA : %s\n", rootCA);
+  }
+
+  int certSize = preferences.getString(certKey).length();
+  if (certSize > 0) {
+    cert = (char *)ps_malloc(certSize);
+    sprintf(cert, preferences.getString(certKey).c_str());
+    Serial.printf("cert : %s\n", cert);
+  }
+
+  int keySize = preferences.getString(keyKey).length();
+  if (keySize > 0) {
+    key = (char *)ps_malloc(keySize);
+    sprintf(key, preferences.getString(keyKey).c_str());
+    Serial.printf("key : %s\n", key);
+  }
+
+  activeScan = preferences.getBool(activeScanKey);
+  rssiThreshold = preferences.getInt(rssiThresholdKey);
+
+  gnss = preferences.getBool(gnssKey);
+
   // Setup WiFi
-  if (strlen(ssid) > 0) {
-    WiFi.begin(ssid, pass);
-  } else {
-    WiFi.begin();
-  }
-  delay(500);
+  WiFi.mode(WIFI_STA);
+  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, googleDNS, googleDNS2);
+  WiFi.begin(ssid, pass);
 
-  bool connected = WiFi.isConnected();
+  WiFi.waitForConnectResult();
+
+  if (WiFi.isConnected()) {
+    Serial.println("wifi connect OK");
+
+    configTime(JST, 0, nictNTP); // 時間を同期
+
+    wifiClientSecure.setCACert(rootCA);
+    wifiClientSecure.setCertificate(cert);
+    wifiClientSecure.setPrivateKey(key);
+
+    mqttClient.setServer(url, port);
+    mqttClient.connect("test");
+    delay(1000);
+    if (mqttClient.connected()) {
+      ready = true;
+    } else {
+      ready = false;
+    }
+    mqttClient.disconnect();
+  }
+
   int battLevel = getBattLevel();
-  sprintf(status, statusBarFormat, connected ? LV_SYMBOL_WIFI : " ", battLevel);
-
-  if (connected) {
-    configTime(JST, 0, "ntp.nict.jp", "ntp.jst.mfeed.ad.jp");
-  }
+  sprintf(systemBarMessage, systemBarFormat, WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
 
   // Setup bluetooth
-  BLEDevice::init("");
-  bleScan = BLEDevice::getScan();
+  NimBLEDevice::init("");
+  bleScan = NimBLEDevice::getScan();
+  bleScan->setAdvertisedDeviceCallbacks(new MyNimBLEAdvertisedDeviceCallbacks());
 
   // Setup LVGL
   String LVGL_Arduino = "Hello Arduino!!!!";
@@ -153,7 +339,7 @@ void setup()
   lcd.setColorDepth(24);
 
   /* Initialize the display */
-  lv_disp_draw_buf_init( &draw_buf, buf, NULL, screenWidth * 10 );
+  lv_disp_draw_buf_init( &draw_buf, buf, NULL, screenWidth * 3 );
   lv_init();
   static lv_disp_drv_t disp_drv;
   lv_disp_drv_init( &disp_drv );
@@ -178,7 +364,7 @@ void setup()
 
   rootScreen = lv_scr_act();
 
-  lv_obj_t* tabView = lv_tabview_create(rootScreen, LV_DIR_LEFT, tabWidth);
+  lv_obj_t* tabView = lv_tabview_create(rootScreen, LV_DIR_BOTTOM, tabWidth);
 
   // ホームタブ
   lv_obj_t* homeTab = lv_tabview_add_tab(tabView, LV_SYMBOL_HOME);
@@ -186,9 +372,13 @@ void setup()
   lv_gridnav_add(homeTabContainer, LV_GRIDNAV_CTRL_NONE);
   lv_obj_set_size(homeTabContainer, lv_pct(100), lv_pct(100));
 
-  statusBar = lv_label_create(homeTab);
-  lv_label_set_text(statusBar, status);
-  lv_obj_align(statusBar, LV_ALIGN_TOP_RIGHT, -15, 10); // -15はlv_obj_get_widthで幅を取得するべきか？
+  systemBar = lv_label_create(homeTab);
+  lv_label_set_text(systemBar, systemBarMessage);
+  lv_obj_align(systemBar, LV_ALIGN_TOP_RIGHT, -15, 10); // -15はlv_obj_get_widthで幅を取得するべきか？
+
+  status = lv_label_create(homeTab);
+  lv_label_set_text(status, booting);
+  lv_obj_set_pos(status, 110, 80);
 
   // WiFi/LTE/MQTT/証明書タブ
   lv_obj_t* connectionTab = lv_tabview_add_tab(tabView, LV_SYMBOL_WIFI);
@@ -196,17 +386,17 @@ void setup()
   lv_gridnav_add(connectionTabContainer, LV_GRIDNAV_CTRL_NONE);
   lv_obj_set_size(connectionTabContainer, lv_pct(100), lv_pct(300));
   
-  static lv_style_t jp_style;
-  lv_style_init(&jp_style);
-  lv_style_set_text_font(&jp_style, &mplus1_light_14);
+  //static lv_style_t jp_style;
+  //lv_style_init(&jp_style);
+  //lv_style_set_text_font(&jp_style, &mplus1_light_14);
 
   lv_obj_t* wifiLabel = lv_label_create(connectionTabContainer);
-  lv_obj_add_style(wifiLabel, &jp_style, 0);
-  lv_label_set_text(wifiLabel, "WiFi");
+  //lv_obj_add_style(wifiLabel, &jp_style, 0);
+  lv_label_set_text(wifiLabel, wifiText);
   lv_obj_set_pos(wifiLabel, 0, 0);
 
   lv_obj_t* ssidLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(ssidLabel, "SSID");
+  lv_label_set_text(ssidLabel, ssidText);
   lv_obj_set_pos(ssidLabel, 0, 50);
 
   static lv_obj_t* ssidDropdown = lv_dropdown_create(connectionTabContainer);
@@ -231,45 +421,55 @@ void setup()
   }, LV_EVENT_CLICKED, NULL);
 
   lv_obj_t* passwordLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(passwordLabel, "PASS");
+  lv_label_set_text(passwordLabel, passText);
   lv_obj_set_pos(passwordLabel, 0, 100);
 
   static lv_obj_t* passwordTextarea = lv_textarea_create(connectionTabContainer);
-  lv_textarea_set_text(passwordTextarea, "");
+  lv_textarea_set_text(passwordTextarea, pass);
   lv_textarea_set_password_mode(passwordTextarea, true);
   lv_textarea_set_one_line(passwordTextarea, true);
+  lv_textarea_set_max_length(passwordTextarea, 64);
   lv_obj_set_width(passwordTextarea, 140);
   lv_obj_set_pos(passwordTextarea, 50, 90);
   lv_obj_add_event_cb(passwordTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_t* wifiSaveButton = lv_btn_create(connectionTabContainer);
   lv_obj_t* wifiSaveButtonLabel = lv_label_create(wifiSaveButton);
-  lv_label_set_text(wifiSaveButtonLabel, "Save");
+  lv_label_set_text(wifiSaveButtonLabel, saveText);
   lv_obj_set_pos(wifiSaveButton, 50, 140);
   lv_obj_add_event_cb(wifiSaveButton, [](lv_event_t * event) {
+    ready = false;
+
     lv_dropdown_get_selected_str(ssidDropdown, ssid, 33);
     sprintf(pass, "%s\0", lv_textarea_get_text(passwordTextarea), 65);
     Serial.printf("ssid : %s  pass : %s\n", ssid, pass);
-    WiFi.begin(ssid, pass);
-    delay(500);
-    Serial.println("WiFi : " + WiFi.isConnected() ? "WiFi connect OK" : "WiFi connect FAIL");
-    if (WiFi.isConnected()) {
-      preferences.putString(ssidKey, ssid);
-      preferences.putString(passKey, pass);
-    }
+
+    static const char * buttons[] = { okText, cancelText, "" };
+    messageBox = lv_msgbox_create(NULL, saveText, "SSID and Password", buttons, true);
+    lv_obj_center(messageBox);
+    lv_obj_add_event_cb(messageBox, [] (lv_event_t * event) {
+      lv_obj_t * obj = lv_event_get_current_target(event);
+      const char * buttonText = lv_msgbox_get_active_btn_text(obj);
+      if (strcmp(buttonText, okText) == 0) {
+        preferences.putString(ssidKey, ssid);
+        preferences.putString(passKey, pass);
+      }
+      lv_msgbox_close(messageBox);
+    }, LV_EVENT_VALUE_CHANGED, NULL);
   }, LV_EVENT_CLICKED, NULL);
 
   lv_obj_t* mqttLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(mqttLabel, "MQTT");
+  lv_label_set_text(mqttLabel, mqttText);
   lv_obj_set_pos(mqttLabel, 0, 200);
 
   lv_obj_t* urlLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(urlLabel, "URL");
+  lv_label_set_text(urlLabel, urlText);
   lv_obj_set_pos(urlLabel, 0, 250);
 
-  lv_obj_t* urlTextarea = lv_textarea_create(connectionTabContainer);
-  lv_textarea_set_text(urlTextarea, "");
+  static lv_obj_t* urlTextarea = lv_textarea_create(connectionTabContainer);
+  lv_textarea_set_text(urlTextarea, url);
   lv_textarea_set_one_line(urlTextarea, true);
+  lv_textarea_set_max_length(urlTextarea, 63);
   lv_obj_set_width(urlTextarea, 140);
   lv_obj_set_pos(urlTextarea, 50, 240);
   lv_obj_add_event_cb(urlTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
@@ -278,71 +478,169 @@ void setup()
   lv_label_set_text(portLabel, "PORT");
   lv_obj_set_pos(portLabel, 0, 300);
 
-  lv_obj_t* portTextarea = lv_textarea_create(connectionTabContainer);
-  lv_textarea_set_text(portTextarea, "");
+  static lv_obj_t* portTextarea = lv_textarea_create(connectionTabContainer);
+  lv_textarea_set_text(portTextarea, String(port).c_str());
   lv_textarea_set_one_line(portTextarea, true);
+  lv_textarea_set_accepted_chars(portTextarea, "0123456789");
+  lv_textarea_set_max_length(portTextarea, 4);
   lv_obj_set_width(portTextarea, 140);
   lv_obj_set_pos(portTextarea, 50, 290);
   lv_obj_add_event_cb(portTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
+  lv_obj_t* topicLabel = lv_label_create(connectionTabContainer);
+  lv_label_set_text(topicLabel, topicText);
+  lv_obj_set_pos(topicLabel, 0, 350);
+
+  static lv_obj_t* topicTextarea = lv_textarea_create(connectionTabContainer);
+  lv_textarea_set_text(topicTextarea, topic);
+  lv_textarea_set_one_line(topicTextarea, true);
+  lv_obj_set_width(topicTextarea, 140);
+  lv_obj_set_pos(topicTextarea, 50, 340);
+  lv_obj_add_event_cb(topicTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
+
   lv_obj_t* mqttSaveButton = lv_btn_create(connectionTabContainer);
   lv_obj_t* mqttSaveButtonLabel = lv_label_create(mqttSaveButton);
-  lv_label_set_text(mqttSaveButtonLabel, "Save");
-  lv_obj_set_pos(mqttSaveButton, 50, 340);
+  lv_label_set_text(mqttSaveButtonLabel, saveText);
+  lv_obj_set_pos(mqttSaveButton, 50, 390);
+  lv_obj_add_event_cb(mqttSaveButton, [](lv_event_t * event) {
+    Serial.println("mqttSaveButton");
+    ready = false;
+
+    sprintf(url, "%s", lv_textarea_get_text(urlTextarea));
+    port = atoi(lv_textarea_get_text(portTextarea));
+    sprintf(topic, "%s", lv_textarea_get_text(topicTextarea));
+
+    Serial.printf("%s, %d, %s\n", url, port, topic);
+    
+    static const char * buttons[] = { okText, cancelText, "" };
+    messageBox = lv_msgbox_create(NULL, saveText, "MQTT settings", buttons, true);
+    lv_obj_center(messageBox);
+    lv_obj_add_event_cb(messageBox, [] (lv_event_t * event) {
+      lv_obj_t * obj = lv_event_get_current_target(event);
+      const char * buttonText = lv_msgbox_get_active_btn_text(obj);
+      if (strcmp(buttonText, okText) == 0) {
+        preferences.putString(urlKey, url);
+        preferences.putInt(portKey, port);
+        preferences.putString(topicKey, topic);
+      }
+      lv_msgbox_close(messageBox);
+    }, LV_EVENT_VALUE_CHANGED, NULL);
+  }, LV_EVENT_CLICKED, NULL);
+
+  String files = "";
+  // SDカードからファイル一覧を取得する
+  File root = SD.open("/");
+  File file = root.openNextFile();
+  while (file) {
+    if (!file.isDirectory()) {
+      if (strlen(file.name()) > 0) {
+        if (file.name()[0] != '.') { // 隠しファイルではないこと
+          files += "/";
+          files += file.name();
+          files += "\n";
+        }
+      }
+    }
+    file = root.openNextFile();
+  }
+  file.close();
 
   lv_obj_t* certLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(certLabel, "Certification");
-  lv_obj_set_pos(certLabel, 0, 400);
+  lv_label_set_text(certLabel, certText);
+  lv_obj_set_pos(certLabel, 0, 450);
 
   lv_obj_t* rootCaLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(rootCaLabel, "Root");
-  lv_obj_set_pos(rootCaLabel, 0, 450);
+  lv_label_set_text(rootCaLabel, rootCAText);
+  lv_obj_set_pos(rootCaLabel, 0, 500);
 
-  lv_obj_t* rootCaDropdown = lv_dropdown_create(connectionTabContainer);
-  lv_dropdown_set_options(rootCaDropdown, "AmazonCA1");
+  static lv_obj_t* rootCaDropdown = lv_dropdown_create(connectionTabContainer);
+  lv_dropdown_set_options(rootCaDropdown, files.c_str());
   lv_obj_set_width(rootCaDropdown, 140);
-  lv_obj_set_pos(rootCaDropdown, 50, 440);
+  lv_obj_set_pos(rootCaDropdown, 50, 490);
 
   lv_obj_t* clientCertLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(clientCertLabel, "Cert");
-  lv_obj_set_pos(clientCertLabel, 0, 500);
+  lv_label_set_text(clientCertLabel, certText);
+  lv_obj_set_pos(clientCertLabel, 0, 550);
 
-  lv_obj_t* clientCertDropdown = lv_dropdown_create(connectionTabContainer);
-  lv_dropdown_set_options(clientCertDropdown, "Cert1");
+  static lv_obj_t* clientCertDropdown = lv_dropdown_create(connectionTabContainer);
+  lv_dropdown_set_options(clientCertDropdown, files.c_str());
   lv_obj_set_width(clientCertDropdown, 140);
-  lv_obj_set_pos(clientCertDropdown, 50, 490);
+  lv_obj_set_pos(clientCertDropdown, 50, 540);
 
   lv_obj_t* keyLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(keyLabel, "Key");
-  lv_obj_set_pos(keyLabel, 0, 550);
+  lv_label_set_text(keyLabel, keyText);
+  lv_obj_set_pos(keyLabel, 0, 600);
 
-  lv_obj_t* keyDropdown = lv_dropdown_create(connectionTabContainer);
-  lv_dropdown_set_options(keyDropdown, "Key1");
+  static lv_obj_t* keyDropdown = lv_dropdown_create(connectionTabContainer);
+  lv_dropdown_set_options(keyDropdown, files.c_str());
   lv_obj_set_width(keyDropdown, 140);
-  lv_obj_set_pos(keyDropdown, 50, 540);
+  lv_obj_set_pos(keyDropdown, 50, 590);
 
   lv_obj_t* certSaveButton = lv_btn_create(connectionTabContainer);
   lv_obj_t* certSaveButtonLabel = lv_label_create(certSaveButton);
-  lv_label_set_text(certSaveButtonLabel, "Save");
-  lv_obj_set_pos(certSaveButton, 50, 590);
+  lv_label_set_text(certSaveButtonLabel, saveText);
+  lv_obj_set_pos(certSaveButton, 50, 640);
+  lv_obj_add_event_cb(certSaveButton, [] (lv_event_t * event) {
+    ready = false;
+
+    static const char * buttons[] = { okText, cancelText, "" };
+    messageBox = lv_msgbox_create(NULL, saveText, "Certification files", buttons, true);
+    lv_obj_center(messageBox);
+    lv_obj_add_event_cb(messageBox, [] (lv_event_t * event) {
+      lv_obj_t * obj = lv_event_get_current_target(event);
+      const char * buttonText = lv_msgbox_get_active_btn_text(obj);
+      if (strcmp(buttonText, okText) == 0) {
+        char buf[32];
+        File file;
+
+        lv_dropdown_get_selected_str(rootCaDropdown, buf, 32);
+        //Serial.printf("rootCA : %s\n", buf);
+        file = SD.open(buf, "r");
+        rootCA = (char *)ps_malloc(file.size());
+        file.readBytes(rootCA, file.size());
+        //Serial.printf("rootCA : %s\n", rootCA);
+        preferences.putString(rootCAKey, rootCA);
+
+        lv_dropdown_get_selected_str(clientCertDropdown, buf, 32);
+        //Serial.printf("cert : %s\n", buf);
+        file = SD.open(buf, "r");
+        cert = (char *)ps_malloc(file.size());
+        file.readBytes(cert, file.size());
+        //Serial.printf("cert : %s\n", cert);
+        preferences.putString(certKey, cert);
+
+        lv_dropdown_get_selected_str(keyDropdown, buf, 32);
+        //Serial.printf("key : %s\n", buf);
+        file = SD.open(buf, "r");
+        key = (char *)ps_malloc(file.size());
+        file.readBytes(key, file.size());
+        //Serial.printf("key : %s\n", key);
+        preferences.putString(keyKey, key);
+      }
+      lv_msgbox_close(messageBox);
+    }, LV_EVENT_VALUE_CHANGED, NULL);
+  }, LV_EVENT_CLICKED, NULL);
 
   lv_obj_t* ntpLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(ntpLabel, "NTP");
-  lv_obj_set_pos(ntpLabel, 0, 650);
+  lv_label_set_text(ntpLabel, ntpText);
+  lv_obj_set_pos(ntpLabel, 0, 700);
 
   lv_obj_t* ntpServerLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(ntpServerLabel, "NTP");
-  lv_obj_set_pos(ntpServerLabel, 0, 700);
+  lv_label_set_text(ntpServerLabel, urlText);
+  lv_obj_set_pos(ntpServerLabel, 0, 750);
 
   lv_obj_t* ntpDropdown = lv_dropdown_create(connectionTabContainer);
-  lv_dropdown_set_options(ntpDropdown, "ntp.nict.jp");
+  lv_dropdown_set_options(ntpDropdown, nictNTP);
   lv_obj_set_width(ntpDropdown, 140);
-  lv_obj_set_pos(ntpDropdown, 50, 690);
+  lv_obj_set_pos(ntpDropdown, 50, 740);
 
   lv_obj_t* ntpSaveButton = lv_btn_create(connectionTabContainer);
   lv_obj_t* ntpSaveButtonLabel = lv_label_create(ntpSaveButton);
-  lv_label_set_text(ntpSaveButtonLabel, "Save");
-  lv_obj_set_pos(ntpSaveButton, 50, 740);
+  lv_label_set_text(ntpSaveButtonLabel, saveText);
+  lv_obj_set_pos(ntpSaveButton, 50, 790);
+  lv_obj_add_event_cb(ntpSaveButton, [] (lv_event_t * event) {
+    // NTPの変更は未実装
+  }, LV_EVENT_CLICKED, NULL);
 
   // Bluetoothタブ
   lv_obj_t* bluetoothTab = lv_tabview_add_tab(tabView, LV_SYMBOL_BLUETOOTH);
@@ -351,29 +649,58 @@ void setup()
   lv_obj_set_size(bluetoothTabContainer, lv_pct(100), lv_pct(100));
 
   lv_obj_t* activeScanLabel = lv_label_create(bluetoothTabContainer);
-  lv_label_set_text(activeScanLabel, "Active scan");
+  lv_label_set_text(activeScanLabel, bluetoothText);
   lv_obj_set_pos(activeScanLabel, 0, 0);
 
-  lv_obj_t* activeScanEnableScan = lv_label_create(bluetoothTabContainer);
-  lv_label_set_text(activeScanEnableScan, "ON");
-  lv_obj_set_pos(activeScanEnableScan, 0, 50);
+  lv_obj_t* activeScanEnableLabel = lv_label_create(bluetoothTabContainer);
+  lv_label_set_text(activeScanEnableLabel, activeScanText);
+  lv_obj_set_pos(activeScanEnableLabel, 0, 50);
 
-  lv_obj_t* activeScanSwitch = lv_switch_create(bluetoothTabContainer);
-  lv_obj_add_state(activeScanSwitch, LV_STATE_CHECKED);
+  static lv_obj_t* activeScanSwitch = lv_switch_create(bluetoothTabContainer);
+  if (activeScan) {
+    lv_obj_add_state(activeScanSwitch, LV_STATE_CHECKED);
+  } else {
+    lv_obj_clear_state(activeScanSwitch, LV_STATE_CHECKED);
+  }
   lv_obj_set_pos(activeScanSwitch, 50, 40);
 
   lv_obj_t* rssiLabel = lv_label_create(bluetoothTabContainer);
-  lv_label_set_text(rssiLabel, "RSSI");
+  lv_label_set_text(rssiLabel, rssiText);
   lv_obj_set_pos(rssiLabel, 0, 100);
 
-  lv_obj_t* rssiSlider = lv_slider_create(bluetoothTabContainer);
-  lv_obj_set_width(rssiSlider, 130);
-  lv_obj_set_pos(rssiSlider, 60, 100);
+  static lv_obj_t* rssiThresholdLabel = lv_label_create(bluetoothTabContainer);
+  lv_label_set_text_fmt(rssiThresholdLabel, "%d", rssiThreshold);
+  lv_obj_set_pos(rssiThresholdLabel, 210, 100);
 
-  lv_obj_t* activeScanSaveButton = lv_btn_create(bluetoothTabContainer);
-  lv_obj_t* activeScanSaveButtonLabel = lv_label_create(activeScanSaveButton);
-  lv_label_set_text(activeScanSaveButtonLabel, "Save");
-  lv_obj_set_pos(activeScanSaveButton, 50, 140);
+  static lv_obj_t* rssiSlider = lv_slider_create(bluetoothTabContainer);
+  lv_obj_set_width(rssiSlider, 130);
+  lv_slider_set_range(rssiSlider, -120, 0);
+  lv_slider_set_value(rssiSlider, rssiThreshold, LV_ANIM_OFF);
+  lv_obj_set_pos(rssiSlider, 60, 100);
+  lv_obj_add_event_cb(rssiSlider, [](lv_event_t * event) {
+    lv_obj_t * slider = lv_event_get_target(event);
+    int value = lv_slider_get_value(slider);
+    lv_label_set_text_fmt(rssiThresholdLabel, "%d", value);
+  }, LV_EVENT_VALUE_CHANGED, NULL);
+
+  lv_obj_t* bluetoothSaveButton = lv_btn_create(bluetoothTabContainer);
+  lv_obj_t* bluetoothSaveButtonLabel = lv_label_create(bluetoothSaveButton);
+  lv_label_set_text(bluetoothSaveButtonLabel, saveText);
+  lv_obj_set_pos(bluetoothSaveButton, 50, 140);
+  lv_obj_add_event_cb(bluetoothSaveButton, [] (lv_event_t * event) {
+    static const char * buttons[] = { okText, cancelText, "" };
+    messageBox = lv_msgbox_create(NULL, saveText, "Bluetooth settings", buttons, true);
+    lv_obj_center(messageBox);
+    lv_obj_add_event_cb(messageBox, [] (lv_event_t * event) {
+      lv_obj_t * obj = lv_event_get_current_target(event);
+      const char * buttonText = lv_msgbox_get_active_btn_text(obj);
+      if (strcmp(buttonText, okText) == 0) {
+        preferences.putBool(activeScanKey, lv_obj_get_state(activeScanSwitch));
+        preferences.putInt(rssiThresholdKey, lv_slider_get_value(rssiSlider));
+      }
+      lv_msgbox_close(messageBox);
+    }, LV_EVENT_VALUE_CHANGED, NULL);
+  }, LV_EVENT_CLICKED, NULL);
 
   // GPS/内蔵センサタブ
   lv_obj_t* sensorTab = lv_tabview_add_tab(tabView, LV_SYMBOL_GPS);
@@ -382,17 +709,41 @@ void setup()
   lv_obj_set_size(sensorTabContainer, lv_pct(100), lv_pct(200));
 
   lv_obj_t* gnssLabel = lv_label_create(sensorTabContainer);
-  lv_label_set_text(gnssLabel, "GPS");
+  lv_label_set_text(gnssLabel, gpsText);
   lv_obj_set_pos(gnssLabel, 0, 0);
 
   lv_obj_t* gnssEnableLabel = lv_label_create(sensorTabContainer);
-  lv_label_set_text(gnssEnableLabel, "ON");
+  lv_label_set_text(gnssEnableLabel, enableText);
   lv_obj_set_pos(gnssEnableLabel, 0, 50);
 
-  lv_obj_t* gnssSwitch = lv_switch_create(sensorTabContainer);
-  lv_obj_add_state(gnssSwitch, LV_STATE_CHECKED);
+  static lv_obj_t* gnssSwitch = lv_switch_create(sensorTabContainer);
+  if (gnss) {
+    lv_obj_add_state(gnssSwitch, LV_STATE_CHECKED);
+  } else {
+    lv_obj_clear_state(gnssSwitch, LV_STATE_CHECKED);
+  }
   lv_obj_set_pos(gnssSwitch, 50, 40);
 
+  lv_obj_t* sensorSaveButton = lv_btn_create(sensorTabContainer);
+  lv_obj_t* sensorSaveButtonLabel = lv_label_create(sensorSaveButton);
+  lv_label_set_text(sensorSaveButtonLabel, saveText);
+  lv_obj_set_pos(sensorSaveButton, 50, 100);
+  lv_obj_add_event_cb(sensorSaveButton, [] (lv_event_t * event) {
+
+    static const char * buttons[] = { okText, cancelText, "" };
+    messageBox = lv_msgbox_create(NULL, saveText, "GPS settings", buttons, true);
+    lv_obj_center(messageBox);
+    lv_obj_add_event_cb(messageBox, [] (lv_event_t * event) {
+      lv_obj_t * obj = lv_event_get_current_target(event);
+      const char * buttonText = lv_msgbox_get_active_btn_text(obj);
+      if (strcmp(buttonText, okText) == 0) {
+        preferences.putBool(gnssKey, lv_obj_get_state(gnssSwitch));
+      }
+      lv_msgbox_close(messageBox);
+    }, LV_EVENT_VALUE_CHANGED, NULL);
+  }, LV_EVENT_CLICKED, NULL);
+
+  /*
   lv_obj_t* temperatureLabel = lv_label_create(sensorTabContainer);
   lv_label_set_text(temperatureLabel, "Temperature");
   lv_obj_set_pos(temperatureLabel, 0, 100);
@@ -417,10 +768,11 @@ void setup()
   lv_obj_add_state(humiditySwitch, LV_STATE_CHECKED);
   lv_obj_set_pos(humiditySwitch, 50, 240);
 
-  lv_obj_t* humiditySaveButton = lv_btn_create(sensorTabContainer);
-  lv_obj_t* humiditySaveButtonLabel = lv_label_create(humiditySaveButton);
-  lv_label_set_text(humiditySaveButtonLabel, "Save");
-  lv_obj_set_pos(humiditySaveButton, 50, 300);
+  lv_obj_t* sensorSaveButton = lv_btn_create(sensorTabContainer);
+  lv_obj_t* sensorSaveButtonLabel = lv_label_create(sensorSaveButton);
+  lv_label_set_text(sensorSaveButtonLabel, "Save");
+  lv_obj_set_pos(sensorSaveButton, 50, 300);
+  */
 
   Serial.println( "Setup done" );
 }
@@ -430,6 +782,44 @@ void loop()
   M5.update();
   lv_tick_inc(5);
   lv_task_handler();
-  delay(5);
-  updateStatusBar();
+
+  if (ready) {
+    if (WiFi.isConnected()) {
+      if (mqttClient.connected()) {
+        mqttClient.loop();
+        if (!bleScan->isScanning()) {
+          //Serial.println("BLE scan start");
+          bleScan->stop();
+          bleScan->clearResults();
+          bleScan->clearDuplicateCache();
+          bleScan->setActiveScan(activeScan);
+          bleScan->setInterval(scanInterval);
+          bleScan->setWindow(scanWindow);
+          bleScan->setDuplicateFilter(true);
+          bleScan->start(scanTime, NULL, false);
+        }
+      } else {
+        //Serial.println("MQTT closed");
+        mqttClient.disconnect();
+        mqttClient.setServer(url, port);
+        mqttClient.setCallback(mqttCallback);
+        String clientId = "esp32-client-" + WiFi.macAddress();
+        if (mqttClient.connect(clientId.c_str())) {
+          mqttClient.subscribe(notificationTopic);
+        } else {
+          //Serial.println("Reboot");
+          ESP.restart();
+        }
+        delay(500);
+      }
+    } else {
+      WiFi.begin(ssid, pass);
+      WiFi.waitForConnectResult();
+    }
+  }
+  
+  updateSystemBar();
+  updateStatus();
+
+  delay(1);
 }
