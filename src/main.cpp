@@ -5,8 +5,8 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <PubSubClient.h>
-#include <ArduinoJson.h>
 #include <NimBLEDevice.h>
+#include <SoftwareSerial.h>
 #include <TinyGPSPlus.h>
 #include "time.h"
 #include <lvgl.h>
@@ -20,12 +20,12 @@
 Preferences preferences;
 
 // SystemBar
-PROGMEM static const char * systemBarFormat = "%s %d%%";
+PROGMEM static const char * systemBarFormat = "%s %s %d%%";
 char systemBarMessage[16];
 
 // Status
 bool ready = false;
-PROGMEM static const char * booting = "booting...";
+PROGMEM static const char * booting = "Booting...";
 PROGMEM static const char * stopped = "Stopped...";
 PROGMEM static const char * running = "Running...";
 
@@ -82,6 +82,9 @@ int rssiThreshold = -100;
 //GPS
 PROGMEM const char * gnssKey = "gnss";
 bool gnss;
+double latitude = -1.0;
+double longitude = -1.0;
+SoftwareSerial softwareSerial;
 TinyGPSPlus gps = TinyGPSPlus();
 
 // LVGL
@@ -185,7 +188,7 @@ void updateSystemBar() {
   if (systemBar != NULL) {
     bool connected = WiFi.isConnected();
     int battLevel = getBattLevel();
-    sprintf(systemBarMessage, systemBarFormat, connected ? LV_SYMBOL_WIFI : " ", battLevel);
+    sprintf(systemBarMessage, systemBarFormat, gnss ? LV_SYMBOL_GPS : " ", connected ? LV_SYMBOL_WIFI : " ", battLevel);
     lv_label_set_text(systemBar, systemBarMessage);
   }
 }
@@ -220,7 +223,7 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
             bluetoothAddress += advertisedDevice->getAddress().toString()[i];
           }
         }
-        bluetoothAddress.toUpperCase();
+        //bluetoothAddress.toUpperCase();
 
         String gatewayAddress = "";
         for (int i = 0; i < WiFi.macAddress().length(); i++) {
@@ -228,26 +231,59 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
             gatewayAddress += WiFi.macAddress()[i];
           }
         }
-        gatewayAddress.toUpperCase();
+        //gatewayAddress.toUpperCase();
 
         String payload = "";
         for (int i = 0; i < advertisedDevice->getPayloadLength(); i++) {
           payload += String(advertisedDevice->getPayload()[i], HEX);
         }
-        payload.toUpperCase();
+        //payload.toUpperCase();
 
-        sprintf(message, "%s,%s,%s,%d,%ld", 
-                bluetoothAddress.c_str(),
-                gatewayAddress.c_str(),
-                payload.c_str(),
-                rssi,
-                getTime());
+        if (gnss) {
+          sprintf(message, "%s,%s,%s,%d,%ld,%.6lf,%.6lf", 
+                  bluetoothAddress.c_str(),
+                  gatewayAddress.c_str(),
+                  payload.c_str(),
+                  rssi,
+                  getTime(),
+                  latitude,
+                  longitude);
+        } else {
+          sprintf(message, "%s,%s,%s,%d,%ld", 
+                  bluetoothAddress.c_str(),
+                  gatewayAddress.c_str(),
+                  payload.c_str(),
+                  rssi,
+                  getTime());
+        }
+
         mqttClient.publish(topic, message);
       }
     }
     delay(5);
   }
 };
+
+void gpsTask(void * param) {
+  while (1) {
+    if (gnss) {
+      while (softwareSerial.available() > 0) {
+        int ch = softwareSerial.read();
+        if (gps.encode(ch)) {
+          if (gps.location.isValid()) {
+            latitude = gps.location.lat();
+            longitude = gps.location.lng();
+            Serial.printf("%d,%d", latitude, longitude);
+            break;
+          } else {
+            Serial.println("GPS not fix");
+          }
+        }
+      }
+    }
+    delay(10000);
+  }
+}
 
 void setup()
 {
@@ -291,6 +327,19 @@ void setup()
   rssiThreshold = preferences.getInt(rssiThresholdKey);
 
   gnss = preferences.getBool(gnssKey);
+  if (gnss) {
+    // ポートをスキャンし、GPSユニットが接続されているか確認する
+    softwareSerial.begin(9600, SWSERIAL_8N1, 33, 32, false);
+    delay(500);
+    if (softwareSerial.available() == 0) {
+      // GPSが接続されていない
+      Serial.println("GPS Unit not connect");
+      gnss = false;
+    } else {
+      // GPSが接続されている
+      //xTaskCreatePinnedToCore(gpsTask, "gpsTask", 8192, NULL, 0, NULL, 1);
+    }
+  }
 
   // Setup WiFi
   WiFi.mode(WIFI_STA);
@@ -320,7 +369,7 @@ void setup()
   }
 
   int battLevel = getBattLevel();
-  sprintf(systemBarMessage, systemBarFormat, WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
+  sprintf(systemBarMessage, systemBarFormat, gnss ? LV_SYMBOL_GPS : " ", WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
 
   // Setup bluetooth
   NimBLEDevice::init("");
@@ -815,6 +864,19 @@ void loop()
     } else {
       WiFi.begin(ssid, pass);
       WiFi.waitForConnectResult();
+    }
+
+    if (gnss) {
+      while (softwareSerial.available() > 0) {
+        int ch = softwareSerial.read();
+        if (gps.encode(ch)) {
+          if (gps.location.isValid() && gps.location.isUpdated()) {
+            latitude = gps.location.lat();
+            longitude = gps.location.lng();
+            break;
+          }
+        }
+      }
     }
   }
   
