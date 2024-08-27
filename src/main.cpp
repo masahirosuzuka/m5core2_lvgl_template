@@ -8,6 +8,7 @@
 #include <NimBLEDevice.h>
 #include <SoftwareSerial.h>
 #include <TinyGPSPlus.h>
+#include <M5UnitENV.h>
 #include "time.h"
 #include <lvgl.h>
 #include <LovyanGFX.hpp>
@@ -40,6 +41,8 @@ String ssids = "";
 PROGMEM static const IPAddress googleDNS(8, 8, 8, 8);
 PROGMEM static const IPAddress googleDNS2(8, 8, 4, 4);
 
+char macAddress[12] = { 0 };
+
 // NTP
 PROGMEM char * ntpKey = "ntp";
 PROGMEM char * nictNTP = "ntp.nict.jp";
@@ -56,8 +59,9 @@ int port = 0;
 WiFiClientSecure wifiClientSecure = WiFiClientSecure();
 PubSubClient mqttClient = PubSubClient(wifiClientSecure);
 
-char topic[64];
-PROGMEM static const char * notificationTopic = "notification";
+char * clientId = "m5stack";
+char topic[32];
+PROGMEM static const char * notificationTopic = "notify";
 char message[128];
 
 // Cert
@@ -70,6 +74,16 @@ char * cert;
 char * key;
 
 // BLE
+const char * adv = "ADV";
+const char * srp = "SRP";
+struct Beacon {
+  char type[4];
+  char address[13];
+  char payload[63];
+  int rssi;
+  long time;
+};
+QueueHandle_t queue;
 PROGMEM const char * activeScanKey = "activeScan";
 PROGMEM const char * rssiThresholdKey = "rssiThreshold";
 NimBLEScan * bleScan;
@@ -86,6 +100,14 @@ double latitude = -1.0;
 double longitude = -1.0;
 SoftwareSerial softwareSerial;
 TinyGPSPlus gps = TinyGPSPlus();
+
+// Temprature
+float temprature = 0.0;
+SHT4X sht;
+
+// Humidity
+float humidity = 0.0;
+BMP280 bmp;
 
 // LVGL
 PROGMEM static const uint16_t screenWidth  = 320;
@@ -217,6 +239,8 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
     int rssi = advertisedDevice->getRSSI();
     if (rssi >= rssiThreshold) {
       if (mqttClient.connected()) {
+        Beacon beacon;
+
         String bluetoothAddress = "";
         for (int i = 0; i < advertisedDevice->getAddress().toString().length(); i++) {
           if (advertisedDevice->getAddress().toString()[i] != ':') {
@@ -224,66 +248,26 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
           }
         }
         //bluetoothAddress.toUpperCase();
-
-        String gatewayAddress = "";
-        for (int i = 0; i < WiFi.macAddress().length(); i++) {
-          if (WiFi.macAddress()[i] != ':') {
-            gatewayAddress += WiFi.macAddress()[i];
-          }
-        }
-        //gatewayAddress.toUpperCase();
+        sprintf(beacon.address, "%s", bluetoothAddress.c_str());
 
         String payload = "";
         for (int i = 0; i < advertisedDevice->getPayloadLength(); i++) {
           payload += String(advertisedDevice->getPayload()[i], HEX);
         }
         //payload.toUpperCase();
+        sprintf(beacon.payload, "%s", payload.c_str());
 
-        if (gnss) {
-          sprintf(message, "%s,%s,%s,%d,%ld,%.6lf,%.6lf", 
-                  bluetoothAddress.c_str(),
-                  gatewayAddress.c_str(),
-                  payload.c_str(),
-                  rssi,
-                  getTime(),
-                  latitude,
-                  longitude);
-        } else {
-          sprintf(message, "%s,%s,%s,%d,%ld", 
-                  bluetoothAddress.c_str(),
-                  gatewayAddress.c_str(),
-                  payload.c_str(),
-                  rssi,
-                  getTime());
+        beacon.rssi = rssi;
+        beacon.time = getTime();
+
+        if (queue != NULL) {
+          xQueueSend(queue, &beacon, 10);
         }
-
-        mqttClient.publish(topic, message);
       }
     }
-    delay(5);
+    delay(10);
   }
 };
-
-void gpsTask(void * param) {
-  while (1) {
-    if (gnss) {
-      while (softwareSerial.available() > 0) {
-        int ch = softwareSerial.read();
-        if (gps.encode(ch)) {
-          if (gps.location.isValid()) {
-            latitude = gps.location.lat();
-            longitude = gps.location.lng();
-            Serial.printf("%d,%d", latitude, longitude);
-            break;
-          } else {
-            Serial.println("GPS not fix");
-          }
-        }
-      }
-    }
-    delay(10000);
-  }
-}
 
 void setup()
 {
@@ -333,15 +317,18 @@ void setup()
     delay(500);
     if (softwareSerial.available() == 0) {
       // GPSが接続されていない
-      Serial.println("GPS Unit not connect");
+      Serial.println("GPS Unit not connected");
       gnss = false;
+      softwareSerial.end();
     } else {
       // GPSが接続されている
       //xTaskCreatePinnedToCore(gpsTask, "gpsTask", 8192, NULL, 0, NULL, 1);
+      Serial.println("GPS Unit connected");
     }
   }
 
   // Setup WiFi
+  sprintf(macAddress, "%s", WiFi.macAddress().c_str());
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, googleDNS, googleDNS2);
   WiFi.begin(ssid, pass);
@@ -375,6 +362,8 @@ void setup()
   NimBLEDevice::init("");
   bleScan = NimBLEDevice::getScan();
   bleScan->setAdvertisedDeviceCallbacks(new MyNimBLEAdvertisedDeviceCallbacks());
+
+  queue = xQueueCreate(sizeof(Beacon), 5);
 
   // Setup LVGL
   String LVGL_Arduino = "Hello Arduino!!!!";
@@ -835,6 +824,33 @@ void loop()
   if (ready) {
     if (WiFi.isConnected()) {
       if (mqttClient.connected()) {
+        if (queue != NULL) {
+          while (uxQueueMessagesWaiting(queue)) {
+            Beacon beacon;
+            if (xQueueReceive(queue, &beacon, 0) == pdTRUE) {
+              if (gnss) {
+                sprintf(message, "%s,%s,%s,%d,%ld,%.6lf,%.6lf", 
+                        beacon.address,
+                        macAddress,
+                        beacon.payload,
+                        beacon.rssi,
+                        beacon.time,
+                        latitude,
+                        longitude);
+              } else {
+                sprintf(message, "%s,%s,%s,%d,%ld", 
+                        beacon.address,
+                        macAddress,
+                        beacon.payload,
+                        beacon.rssi,
+                        beacon.time);
+              }
+              mqttClient.publish(topic, message);
+              delay(1);
+            }
+          }
+        }
+
         mqttClient.loop();
         if (!bleScan->isScanning()) {
           //Serial.println("BLE scan start");
@@ -852,8 +868,8 @@ void loop()
         mqttClient.disconnect();
         mqttClient.setServer(url, port);
         mqttClient.setCallback(mqttCallback);
-        String clientId = "esp32-client-" + WiFi.macAddress();
-        if (mqttClient.connect(clientId.c_str())) {
+        //String clientId = "esp32-client-" + WiFi.macAddress();
+        if (mqttClient.connect(clientId)) {
           mqttClient.subscribe(notificationTopic);
         } else {
           //Serial.println("Reboot");
