@@ -41,7 +41,7 @@ String ssids = "";
 PROGMEM static const IPAddress googleDNS(8, 8, 8, 8);
 PROGMEM static const IPAddress googleDNS2(8, 8, 4, 4);
 
-char macAddress[12] = { 0 };
+char macAddress[13] = { 0 };
 
 // NTP
 PROGMEM char * ntpKey = "ntp";
@@ -269,6 +269,8 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
   }
 };
 
+MyNimBLEAdvertisedDeviceCallbacks * advertisedDeviceCallbacks;
+
 void setup()
 {
   M5.begin(true, true, true, true);
@@ -327,6 +329,8 @@ void setup()
     }
   }
 
+  preferences.end();
+
   // Setup WiFi
   sprintf(macAddress, "%s", WiFi.macAddress().c_str());
   WiFi.mode(WIFI_STA);
@@ -361,7 +365,8 @@ void setup()
   // Setup bluetooth
   NimBLEDevice::init("");
   bleScan = NimBLEDevice::getScan();
-  bleScan->setAdvertisedDeviceCallbacks(new MyNimBLEAdvertisedDeviceCallbacks());
+  //bleScan->setAdvertisedDeviceCallbacks(new MyNimBLEAdvertisedDeviceCallbacks());
+  bleScan->setAdvertisedDeviceCallbacks(advertisedDeviceCallbacks);
 
   queue = xQueueCreate(sizeof(Beacon), 5);
 
@@ -489,8 +494,10 @@ void setup()
       lv_obj_t * obj = lv_event_get_current_target(event);
       const char * buttonText = lv_msgbox_get_active_btn_text(obj);
       if (strcmp(buttonText, okText) == 0) {
+        preferences.begin("m5core2_app", false);
         preferences.putString(ssidKey, ssid);
         preferences.putString(passKey, pass);
+        preferences.end();
       }
       lv_msgbox_close(messageBox);
     }, LV_EVENT_VALUE_CHANGED, NULL);
@@ -557,9 +564,11 @@ void setup()
       lv_obj_t * obj = lv_event_get_current_target(event);
       const char * buttonText = lv_msgbox_get_active_btn_text(obj);
       if (strcmp(buttonText, okText) == 0) {
+        preferences.begin("m5core2_app", false);
         preferences.putString(urlKey, url);
         preferences.putInt(portKey, port);
         preferences.putString(topicKey, topic);
+        preferences.end();
       }
       lv_msgbox_close(messageBox);
     }, LV_EVENT_VALUE_CHANGED, NULL);
@@ -628,6 +637,8 @@ void setup()
       lv_obj_t * obj = lv_event_get_current_target(event);
       const char * buttonText = lv_msgbox_get_active_btn_text(obj);
       if (strcmp(buttonText, okText) == 0) {
+        preferences.begin("m5core2_app", false);
+
         char buf[32];
         File file;
 
@@ -654,6 +665,8 @@ void setup()
         file.readBytes(key, file.size());
         //Serial.printf("key : %s\n", key);
         preferences.putString(keyKey, key);
+
+        preferences.end();
       }
       lv_msgbox_close(messageBox);
     }, LV_EVENT_VALUE_CHANGED, NULL);
@@ -733,8 +746,10 @@ void setup()
       lv_obj_t * obj = lv_event_get_current_target(event);
       const char * buttonText = lv_msgbox_get_active_btn_text(obj);
       if (strcmp(buttonText, okText) == 0) {
+        preferences.begin("m5core2_app", false);
         preferences.putBool(activeScanKey, lv_obj_get_state(activeScanSwitch));
         preferences.putInt(rssiThresholdKey, lv_slider_get_value(rssiSlider));
+        preferences.end();
       }
       lv_msgbox_close(messageBox);
     }, LV_EVENT_VALUE_CHANGED, NULL);
@@ -775,7 +790,9 @@ void setup()
       lv_obj_t * obj = lv_event_get_current_target(event);
       const char * buttonText = lv_msgbox_get_active_btn_text(obj);
       if (strcmp(buttonText, okText) == 0) {
+        preferences.begin("m5core2_app", false);
         preferences.putBool(gnssKey, lv_obj_get_state(gnssSwitch));
+        preferences.end();
       }
       lv_msgbox_close(messageBox);
     }, LV_EVENT_VALUE_CHANGED, NULL);
@@ -873,7 +890,7 @@ void loop()
           mqttClient.subscribe(notificationTopic);
         } else {
           //Serial.println("Reboot");
-          ESP.restart();
+          //ESP.restart();
         }
         delay(500);
       }
