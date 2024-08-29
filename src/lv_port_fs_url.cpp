@@ -9,9 +9,12 @@
 /*********************
  *      INCLUDES
  *********************/
+#include <stdio.h>
+#include <stdint.h>
 #include <lvgl.h>
 #include <M5Core2.h>
 #include <WiFi.h>
+#include <HTTPClient.h>
 
 /*********************
  *      DEFINES
@@ -113,18 +116,27 @@ static void * fs_open(lv_fs_drv_t * drv, const char * path, lv_fs_mode_t mode)
 
     void * f = NULL;
 
-    if(mode == LV_FS_MODE_WR) {
-        /* Not support */
-    }
-    else if(mode == LV_FS_MODE_RD) {
-        /* ファイルがURL上に存在するか確認する */
-        /* 存在すればFileを返す */
-        if (WiFi.status() != WL_CONNECTED) {
-            return;
+    // TODO : pathがディレクトリの場合は非サポート。NULLを返す
+
+    if(mode == LV_FS_MODE_RD) {
+        if (!WiFi.isConnected()) {
+            return f;
         }
-    }
-    else if(mode == (LV_FS_MODE_WR | LV_FS_MODE_RD)) {
-        /* Not support */
+
+        /* ファイルがパス(URL)上に存在するか確認する */
+        HTTPClient client;
+        client.begin(path);
+        int resultCode = client.GET();
+
+        /* 存在すれば疑似ファイルにして返す */
+        if (resultCode == 200) {
+            size_t size = client.getSize();
+            if (size > 0) {
+                const char * buffer = client.getString().c_str();
+                f = fmemopen((void *)buffer, size, "r");
+            }
+        }
+        client.end();
     }
 
     return f;
