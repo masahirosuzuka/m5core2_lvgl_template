@@ -33,6 +33,9 @@ static const char *booting = "Booting...";
 static const char *stopped = "Stopped...";
 static const char *running = "Running...";
 
+char dashboardTempratureBuffer[8];
+char dashboardHumidityBuffer[8];
+
 // WiFi
 static const char *ssidKey = "ssid";
 static const char *passKey = "pass";
@@ -105,7 +108,7 @@ double longitude = -1.0;
 SoftwareSerial softwareSerial;
 TinyGPSPlus gps = TinyGPSPlus();
 
-// Temprature
+// Temprature / Humidity
 const char *temperatureKey = "temperature";
 bool temperatureEnable = false;
 float temperature = 0.0;
@@ -156,6 +159,8 @@ static LGFX lcd;
 static lv_obj_t *rootScreen;
 static lv_obj_t *systemBar;
 static lv_obj_t *status;
+static lv_obj_t *dashboardTempertature;
+static lv_obj_t *dashboardHumidity;
 static lv_obj_t *keyboard;
 lv_obj_t *messageBox;
 
@@ -235,6 +240,18 @@ void updateStatus() {
   }
 }
 
+void updateDashboard() {
+  if (temperatureEnable) {
+    sprintf(dashboardTempratureBuffer, "%.1f °C", temperature);
+    lv_label_set_text(dashboardTempertature, dashboardTempratureBuffer);
+  }
+
+  if (humidityEnable) {
+    sprintf(dashboardHumidityBuffer, "%.1f %%", humidity);
+    lv_label_set_text(dashboardHumidity, dashboardHumidityBuffer);
+  }
+}
+
 void mqttCallback(const char *topic, byte *payload, unsigned int length) {
   Serial.print(topic);
   Serial.print(" : ");
@@ -271,11 +288,6 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
 
         beacon.rssi = rssi;
         beacon.time = getTime();
-
-        Serial.printf("src address : %s\n", beacon.address);
-        Serial.printf("src payload : %s\n", beacon.payload);
-        Serial.printf("src rssi : %d\n", beacon.rssi);
-        Serial.printf("src time : %d\n", beacon.time);
 
         if (queue != NULL) {
           xQueueSend(queue, &beacon, 10);
@@ -453,14 +465,28 @@ void setup() {
   lv_gridnav_add(homeTabContainer, LV_GRIDNAV_CTRL_NONE);
   lv_obj_set_size(homeTabContainer, lv_pct(100), lv_pct(100));
 
-  systemBar = lv_label_create(homeTab);
+  systemBar = lv_label_create(homeTabContainer);
   lv_label_set_text(systemBar, systemBarMessage);
-  lv_obj_align(systemBar, LV_ALIGN_TOP_RIGHT, -15,
-               10);  // -15はlv_obj_get_widthで幅を取得するべきか？
+  lv_obj_align(systemBar, LV_ALIGN_TOP_RIGHT, 0, 0);
 
-  status = lv_label_create(homeTab);
+  status = lv_label_create(homeTabContainer);
   lv_label_set_text(status, booting);
-  lv_obj_set_pos(status, 110, 80);
+  lv_obj_set_pos(status, 0, 0);
+
+  // ダッシュボード
+  static lv_style_t dashboardLabelStyle;
+  lv_style_init(&dashboardLabelStyle);
+  lv_style_set_text_font(&dashboardLabelStyle, &lv_font_montserrat_34);
+
+  dashboardTempertature = lv_label_create(homeTabContainer);
+  lv_label_set_text(dashboardTempertature, "--.- °C");
+  lv_obj_set_pos(dashboardTempertature, 15, 60);
+  lv_obj_add_style(dashboardTempertature, &dashboardLabelStyle, 0);
+
+  dashboardHumidity = lv_label_create(homeTabContainer);
+  lv_label_set_text(dashboardHumidity, "--.- %");
+  lv_obj_set_pos(dashboardHumidity, 150, 60);
+  lv_obj_add_style(dashboardHumidity, &dashboardLabelStyle, 0);
 
   // WiFi/LTE/MQTT/証明書タブ
   lv_obj_t *connectionTab = lv_tabview_add_tab(tabView, LV_SYMBOL_WIFI);
@@ -1010,11 +1036,6 @@ void loop() {
           while (uxQueueMessagesWaiting(queue)) {
             struct Beacon beacon;
             if (xQueueReceive(queue, &beacon, portMAX_DELAY) == pdPASS) {
-              Serial.printf("dst address : %s\n", beacon.address);
-              Serial.printf("dst payload : %s\n", beacon.payload);
-              Serial.printf("dst rssi : %d\n", beacon.rssi);
-              Serial.printf("dst time : %d\n", beacon.time);
-
               messageJson["address"] = beacon.address;
               messageJson["gateway"] = macAddress;
               messageJson["payload"] = beacon.payload;
@@ -1087,26 +1108,31 @@ void loop() {
           }
         }
       }
+      delay(1);
     }
 
     if (temperatureEnable) {
       sht.update();
       temperature = sht.cTemp;
+      delay(1);
     }
 
     if (humidityEnable) {
       sht.update();
       humidity = sht.humidity;
+      delay(1);
     }
 
     if (pressuerEnable) {
       bmp.update();
       pressuer = bmp.pressure;
+      delay(1);
     }
   }
 
   updateSystemBar();
   updateStatus();
+  updateDashboard();
 
   delay(1);
 }
