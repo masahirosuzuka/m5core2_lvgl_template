@@ -390,7 +390,7 @@ void setup() {
   if (WiFi.isConnected()) {
     Serial.println("wifi connect OK");
 
-    configTime(JST, 0, nictNTP);  // 時間を同期
+    configTime(JST, 0, nictNTP); // 時間を同期
 
     sprintf(clientId, "m5stack-%s", wifiMac); // MQTTクライアントIDを設定
 
@@ -848,7 +848,7 @@ void setup() {
       LV_EVENT_CLICKED, NULL);
 
   // GPS/内蔵センサタブ
-  lv_obj_t *sensorTab = lv_tabview_add_tab(tabView, LV_SYMBOL_GPS);
+  lv_obj_t *sensorTab = lv_tabview_add_tab(tabView, LV_SYMBOL_PLUS);
   lv_obj_t *sensorTabContainer = lv_obj_create(sensorTab);
   lv_gridnav_add(sensorTabContainer, LV_GRIDNAV_CTRL_NONE);
   lv_obj_set_size(sensorTabContainer, lv_pct(100), lv_pct(450));
