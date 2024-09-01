@@ -62,11 +62,11 @@ int port = 0;
 WiFiClientSecure wifiClientSecure = WiFiClientSecure();
 PubSubClient mqttClient = PubSubClient(wifiClientSecure);
 
-char *clientId = "m5stack";
+char clientId[16];
 char topic[32];
 static const char *notificationTopic = "notify";
 char message[256];
-StaticJsonDocument<512> messageJson;
+JsonDocument messageJson;
 
 // Cert
 const char *rootCAKey = "rootCA";
@@ -383,12 +383,14 @@ void setup() {
 
     configTime(JST, 0, nictNTP);  // 時間を同期
 
+    sprintf(clientId, "m5stack-%s", wifiMac); // MQTTクライアントIDを設定
+
     wifiClientSecure.setCACert(rootCA);
     wifiClientSecure.setCertificate(cert);
     wifiClientSecure.setPrivateKey(key);
 
     mqttClient.setServer(url, port);
-    mqttClient.connect("test");
+    mqttClient.connect(clientId);
     delay(1000);
     if (mqttClient.connected()) {
       ready = true;
@@ -1027,6 +1029,7 @@ void loop() {
               messageJson["payload"] = beacon.payload;
               messageJson["rssi"] = beacon.rssi;
               messageJson["time"] = beacon.time;
+              messageJson["battery"] = getBattLevel();
 
               if (gnssEnable) {
                 messageJson["latitude"] = latitude;
