@@ -5,6 +5,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <PubSubClient.h>
+#include <ArduinoJson.h>
 #include <NimBLEDevice.h>
 #include <SoftwareSerial.h>
 #include <TinyGPSPlus.h>
@@ -21,37 +22,37 @@
 Preferences preferences;
 
 // SystemBar
-PROGMEM static const char * systemBarFormat = "%s %s %d%%";
+static const char * systemBarFormat = "%s %s %d%%";
 char systemBarMessage[16];
 
 // Status
 bool ready = false;
-PROGMEM static const char * booting = "Booting...";
-PROGMEM static const char * stopped = "Stopped...";
-PROGMEM static const char * running = "Running...";
+static const char * booting = "Booting...";
+static const char * stopped = "Stopped...";
+static const char * running = "Running...";
 
 // WiFi
-PROGMEM static const char * ssidKey = "ssid";
-PROGMEM static const char * passKey = "pass";
+static const char * ssidKey = "ssid";
+static const char * passKey = "pass";
 
 char ssid[33] = { 0 };
 char pass[65] = { 0 };
 String ssids = "";
 
-PROGMEM static const IPAddress googleDNS(8, 8, 8, 8);
-PROGMEM static const IPAddress googleDNS2(8, 8, 4, 4);
+static const IPAddress googleDNS(8, 8, 8, 8);
+static const IPAddress googleDNS2(8, 8, 4, 4);
 
 char macAddress[13] = { 0 };
 
 // NTP
-PROGMEM char * ntpKey = "ntp";
-PROGMEM char * nictNTP = "ntp.nict.jp";
-PROGMEM char * mfeedNTP = "ntp.jst.mfeed.ad.jp";
+static const char * ntpKey = "ntp";
+static const char * nictNTP = "ntp.nict.jp";
+static const char * mfeedNTP = "ntp.jst.mfeed.ad.jp";
 
 // MQTT
-PROGMEM static const char * urlKey = "url";
-PROGMEM static const char * portKey = "port";
-PROGMEM static const char * topicKey = "topic";
+static const char * urlKey = "url";
+static const char * portKey = "port";
+static const char * topicKey = "topic";
 
 char url[64];
 int port = 0;
@@ -61,8 +62,9 @@ PubSubClient mqttClient = PubSubClient(wifiClientSecure);
 
 char * clientId = "m5stack";
 char topic[32];
-PROGMEM static const char * notificationTopic = "notify";
-char message[128];
+static const char * notificationTopic = "notify";
+char message[256];
+StaticJsonDocument<512> messageJson;
 
 // Cert
 const char * rootCAKey = "rootCA";
@@ -77,63 +79,73 @@ char * key;
 const char * adv = "ADV";
 const char * srp = "SRP";
 struct Beacon {
-  char type[4];
-  char address[13];
-  char payload[63];
+  char type[4] = { 0 };
+  char address[20] = { 0 };
+  char payload[100] = { 0 };
   int rssi;
   long time;
 };
 QueueHandle_t queue;
-PROGMEM const char * activeScanKey = "activeScan";
-PROGMEM const char * rssiThresholdKey = "rssiThreshold";
+const char * activeScanKey = "activeScan";
+const char * rssiThresholdKey = "rssiThreshold";
 NimBLEScan * bleScan;
-PROGMEM const int scanTime = 3;
-PROGMEM const int scanInterval = scanTime * 1000;
-PROGMEM const int scanWindow = scanInterval - 100;
+const int scanTime = 3;
+const int scanInterval = scanTime * 1000;
+const int scanWindow = scanInterval - 100;
 bool activeScan = false;
 int rssiThreshold = -100;
 
 //GPS
-PROGMEM const char * gnssKey = "gnss";
-bool gnss;
+const char * gnssKey = "gnss";
+bool gnssEnable;
 double latitude = -1.0;
 double longitude = -1.0;
 SoftwareSerial softwareSerial;
 TinyGPSPlus gps = TinyGPSPlus();
 
 // Temprature
-float temprature = 0.0;
+const char * temperatureKey = "temperature";
+bool temperatureEnable = false;
+float temperature = 0.0;
+const char * humidityKey = "humidity";
+bool humidityEnable = false;
+float humidity = 0.0;
 SHT4X sht;
 
-// Humidity
-float humidity = 0.0;
+// Air pressure
+const char * pressuerKey = "pressuer";
+bool pressuerEnable = false;
+float pressuer = 0.0;
 BMP280 bmp;
 
 // LVGL
-PROGMEM static const uint16_t screenWidth  = 320;
-PROGMEM static const uint16_t screenHeight = 240;
-PROGMEM static const uint16_t tabWidth = 50;
-PROGMEM static const uint16_t padding = 10;
+static const uint16_t screenWidth  = 320;
+static const uint16_t screenHeight = 240;
+static const uint16_t tabWidth = 50;
+static const uint16_t padding = 10;
 
-PROGMEM static const char * wifiText = "WiFi";
-PROGMEM static const char * ssidText = "SSID";
-PROGMEM static const char * passText = "PASS";
-PROGMEM static const char * mqttText = "MQTT";
-PROGMEM static const char * urlText = "URL";
-PROGMEM static const char * portText = "PORT";
-PROGMEM static const char * topicText = "TOPIC";
-PROGMEM static const char * certText = "Cert";
-PROGMEM static const char * rootCAText = "Root";
-PROGMEM static const char * keyText = "Key";
-PROGMEM static const char * ntpText = "NTP";
-PROGMEM static const char * bluetoothText = "Bluetooth";
-PROGMEM static const char * activeScanText = "Active";
-PROGMEM static const char * rssiText = "RSSI";
-PROGMEM static const char * gpsText = "GPS";
-PROGMEM static const char * enableText = "Enable";
-PROGMEM static const char * saveText = "Save";
-PROGMEM static const char * okText = "OK";
-PROGMEM static const char * cancelText = "Cancel";
+static const char * wifiText = "WiFi";
+static const char * ssidText = "SSID";
+static const char * passText = "PASS";
+static const char * mqttText = "MQTT";
+static const char * urlText = "URL";
+static const char * portText = "PORT";
+static const char * topicText = "TOPIC";
+static const char * certText = "Cert";
+static const char * rootCAText = "Root";
+static const char * keyText = "Key";
+static const char * ntpText = "NTP";
+static const char * bluetoothText = "Bluetooth";
+static const char * activeScanText = "Active";
+static const char * rssiText = "RSSI";
+static const char * gpsText = "GPS";
+static const char * temperatureText = "Temperature";
+static const char * humidityText = "Humidity";
+static const char * pressureText = "Air pressure";
+static const char * enableText = "Enable";
+static const char * saveText = "Save";
+static const char * okText = "OK";
+static const char * cancelText = "Cancel";
 
 static lv_disp_draw_buf_t draw_buf;
 static lv_color_t buf[ screenWidth * 3 ];
@@ -210,7 +222,7 @@ void updateSystemBar() {
   if (systemBar != NULL) {
     bool connected = WiFi.isConnected();
     int battLevel = getBattLevel();
-    sprintf(systemBarMessage, systemBarFormat, gnss ? LV_SYMBOL_GPS : " ", connected ? LV_SYMBOL_WIFI : " ", battLevel);
+    sprintf(systemBarMessage, systemBarFormat, gnssEnable ? LV_SYMBOL_GPS : " ", connected ? LV_SYMBOL_WIFI : " ", battLevel);
     lv_label_set_text(systemBar, systemBarMessage);
   }
 }
@@ -239,7 +251,7 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
     int rssi = advertisedDevice->getRSSI();
     if (rssi >= rssiThreshold) {
       if (mqttClient.connected()) {
-        Beacon beacon;
+        struct Beacon beacon;
 
         String bluetoothAddress = "";
         for (int i = 0; i < advertisedDevice->getAddress().toString().length(); i++) {
@@ -247,18 +259,25 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
             bluetoothAddress += advertisedDevice->getAddress().toString()[i];
           }
         }
-        //bluetoothAddress.toUpperCase();
+        bluetoothAddress.trim();
+        bluetoothAddress.toUpperCase();
         sprintf(beacon.address, "%s", bluetoothAddress.c_str());
 
         String payload = "";
         for (int i = 0; i < advertisedDevice->getPayloadLength(); i++) {
           payload += String(advertisedDevice->getPayload()[i], HEX);
         }
-        //payload.toUpperCase();
+        payload.trim();
+        payload.toUpperCase();
         sprintf(beacon.payload, "%s", payload.c_str());
 
         beacon.rssi = rssi;
         beacon.time = getTime();
+
+        Serial.printf("src address : %s\n", beacon.address);
+        Serial.printf("src payload : %s\n", beacon.payload);
+        Serial.printf("src rssi : %d\n", beacon.rssi);
+        Serial.printf("src time : %d\n", beacon.time);
 
         if (queue != NULL) {
           xQueueSend(queue, &beacon, 10);
@@ -269,7 +288,7 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
   }
 };
 
-MyNimBLEAdvertisedDeviceCallbacks * advertisedDeviceCallbacks;
+//MyNimBLEAdvertisedDeviceCallbacks * advertisedDeviceCallbacks;
 
 void setup()
 {
@@ -312,15 +331,15 @@ void setup()
   activeScan = preferences.getBool(activeScanKey);
   rssiThreshold = preferences.getInt(rssiThresholdKey);
 
-  gnss = preferences.getBool(gnssKey);
-  if (gnss) {
+  gnssEnable = preferences.getBool(gnssKey);
+  if (gnssEnable) {
     // ポートをスキャンし、GPSユニットが接続されているか確認する
     softwareSerial.begin(9600, SWSERIAL_8N1, 33, 32, false);
     delay(500);
     if (softwareSerial.available() == 0) {
       // GPSが接続されていない
       Serial.println("GPS Unit not connected");
-      gnss = false;
+      gnssEnable = false;
       softwareSerial.end();
     } else {
       // GPSが接続されている
@@ -329,10 +348,36 @@ void setup()
     }
   }
 
+  temperatureEnable = preferences.getBool(temperatureKey, false);
+  humidityEnable = preferences.getBool(humidityKey, false);
+  if (temperatureEnable || humidityEnable) {
+    if (!sht.begin(&Wire, SHT40_I2C_ADDR_44, 32, 33, 400000U)) {
+      Serial.println("Couldn't find SHT40");
+      temperatureEnable = false;
+      humidityEnable = false;
+    }
+  }
+
+  pressuerEnable = preferences.getBool(pressuerKey, false);
+  if (pressuerEnable) {
+    if (!bmp.begin(&Wire, BMP280_I2C_ADDR, 32, 33, 400000U)) {
+      Serial.println("Couldn't find BMP280");
+      pressuerEnable = false;
+    } else {
+      bmp.setSampling(BMP280::MODE_NORMAL,
+                      BMP280::SAMPLING_X2,
+                      BMP280::SAMPLING_X16,
+                      BMP280::FILTER_X16,
+                      BMP280::STANDBY_MS_500);
+    }
+  }
+
   preferences.end();
 
   // Setup WiFi
-  sprintf(macAddress, "%s", WiFi.macAddress().c_str());
+  String wifiMac = WiFi.macAddress();
+  wifiMac.replace(":", "");
+  sprintf(macAddress, "%s", wifiMac.c_str());
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, googleDNS, googleDNS2);
   WiFi.begin(ssid, pass);
@@ -360,15 +405,15 @@ void setup()
   }
 
   int battLevel = getBattLevel();
-  sprintf(systemBarMessage, systemBarFormat, gnss ? LV_SYMBOL_GPS : " ", WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
+  sprintf(systemBarMessage, systemBarFormat, gnssEnable ? LV_SYMBOL_GPS : " ", WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
 
   // Setup bluetooth
   NimBLEDevice::init("");
   bleScan = NimBLEDevice::getScan();
-  //bleScan->setAdvertisedDeviceCallbacks(new MyNimBLEAdvertisedDeviceCallbacks());
-  bleScan->setAdvertisedDeviceCallbacks(advertisedDeviceCallbacks);
+  bleScan->setAdvertisedDeviceCallbacks(new MyNimBLEAdvertisedDeviceCallbacks());
+  //bleScan->setAdvertisedDeviceCallbacks(advertisedDeviceCallbacks);
 
-  queue = xQueueCreate(sizeof(Beacon), 5);
+  queue = xQueueCreate(5, sizeof(Beacon));
 
   // Setup LVGL
   String LVGL_Arduino = "Hello Arduino!!!!";
@@ -759,7 +804,7 @@ void setup()
   lv_obj_t* sensorTab = lv_tabview_add_tab(tabView, LV_SYMBOL_GPS);
   lv_obj_t* sensorTabContainer = lv_obj_create(sensorTab);
   lv_gridnav_add(sensorTabContainer, LV_GRIDNAV_CTRL_NONE);
-  lv_obj_set_size(sensorTabContainer, lv_pct(100), lv_pct(200));
+  lv_obj_set_size(sensorTabContainer, lv_pct(100), lv_pct(450));
 
   lv_obj_t* gnssLabel = lv_label_create(sensorTabContainer);
   lv_label_set_text(gnssLabel, gpsText);
@@ -770,18 +815,18 @@ void setup()
   lv_obj_set_pos(gnssEnableLabel, 0, 50);
 
   static lv_obj_t* gnssSwitch = lv_switch_create(sensorTabContainer);
-  if (gnss) {
+  if (gnssEnable) {
     lv_obj_add_state(gnssSwitch, LV_STATE_CHECKED);
   } else {
     lv_obj_clear_state(gnssSwitch, LV_STATE_CHECKED);
   }
   lv_obj_set_pos(gnssSwitch, 50, 40);
 
-  lv_obj_t* sensorSaveButton = lv_btn_create(sensorTabContainer);
-  lv_obj_t* sensorSaveButtonLabel = lv_label_create(sensorSaveButton);
-  lv_label_set_text(sensorSaveButtonLabel, saveText);
-  lv_obj_set_pos(sensorSaveButton, 50, 100);
-  lv_obj_add_event_cb(sensorSaveButton, [] (lv_event_t * event) {
+  lv_obj_t* gnssSaveButton = lv_btn_create(sensorTabContainer);
+  lv_obj_t* gnssSaveButtonLabel = lv_label_create(gnssSaveButton);
+  lv_label_set_text(gnssSaveButtonLabel, saveText);
+  lv_obj_set_pos(gnssSaveButton, 50, 100);
+  lv_obj_add_event_cb(gnssSaveButton, [] (lv_event_t * event) {
 
     static const char * buttons[] = { okText, cancelText, "" };
     messageBox = lv_msgbox_create(NULL, saveText, "GPS settings", buttons, true);
@@ -798,36 +843,116 @@ void setup()
     }, LV_EVENT_VALUE_CHANGED, NULL);
   }, LV_EVENT_CLICKED, NULL);
 
-  /*
   lv_obj_t* temperatureLabel = lv_label_create(sensorTabContainer);
-  lv_label_set_text(temperatureLabel, "Temperature");
-  lv_obj_set_pos(temperatureLabel, 0, 100);
+  lv_label_set_text(temperatureLabel, temperatureText);
+  lv_obj_set_pos(temperatureLabel, 0, 150);
 
   lv_obj_t* temperatureEnableLabel = lv_label_create(sensorTabContainer);
-  lv_label_set_text(temperatureEnableLabel, "ON");
-  lv_obj_set_pos(temperatureEnableLabel, 0, 150);
+  lv_label_set_text(temperatureEnableLabel, enableText);
+  lv_obj_set_pos(temperatureEnableLabel, 0, 200);
     
-  lv_obj_t* temperatureSwitch = lv_switch_create(sensorTabContainer);
-  lv_obj_add_state(temperatureSwitch, LV_STATE_CHECKED);
-  lv_obj_set_pos(temperatureSwitch, 50, 140);
+  static lv_obj_t* temperatureSwitch = lv_switch_create(sensorTabContainer);
+  if (temperatureEnable) {
+    lv_obj_add_state(temperatureSwitch, LV_STATE_CHECKED);
+  } else {
+    lv_obj_clear_state(temperatureSwitch, LV_STATE_CHECKED);
+  }
+  lv_obj_set_pos(temperatureSwitch, 50, 190);
+
+  lv_obj_t* temperatureSaveButton = lv_btn_create(sensorTabContainer);
+  lv_obj_t* temperatureSaveButtonLabel = lv_label_create(temperatureSaveButton);
+  lv_label_set_text(temperatureSaveButtonLabel, saveText);
+  lv_obj_set_pos(temperatureSaveButton, 50, 250);
+    lv_obj_add_event_cb(temperatureSaveButton, [] (lv_event_t * event) {
+
+    static const char * buttons[] = { okText, cancelText, "" };
+    messageBox = lv_msgbox_create(NULL, saveText, "Temprature settings", buttons, true);
+    lv_obj_center(messageBox);
+    lv_obj_add_event_cb(messageBox, [] (lv_event_t * event) {
+      lv_obj_t * obj = lv_event_get_current_target(event);
+      const char * buttonText = lv_msgbox_get_active_btn_text(obj);
+      if (strcmp(buttonText, okText) == 0) {
+        preferences.begin("m5core2_app", false);
+        preferences.putBool(temperatureKey, lv_obj_get_state(temperatureSwitch));
+        preferences.end();
+      }
+      lv_msgbox_close(messageBox);
+    }, LV_EVENT_VALUE_CHANGED, NULL);
+  }, LV_EVENT_CLICKED, NULL);
 
   lv_obj_t* humidityLabel = lv_label_create(sensorTabContainer);
-  lv_label_set_text(humidityLabel, "Humidity");
-  lv_obj_set_pos(humidityLabel, 0, 200);
+  lv_label_set_text(humidityLabel, humidityText);
+  lv_obj_set_pos(humidityLabel, 0, 300);
 
   lv_obj_t* humidityEnableLabel = lv_label_create(sensorTabContainer);
-  lv_label_set_text(humidityEnableLabel, "ON");
-  lv_obj_set_pos(humidityEnableLabel, 0, 250);
+  lv_label_set_text(humidityEnableLabel, enableText);
+  lv_obj_set_pos(humidityEnableLabel, 0, 350);
 
-  lv_obj_t* humiditySwitch = lv_switch_create(sensorTabContainer);
-  lv_obj_add_state(humiditySwitch, LV_STATE_CHECKED);
-  lv_obj_set_pos(humiditySwitch, 50, 240);
+  static lv_obj_t* humiditySwitch = lv_switch_create(sensorTabContainer);
+  if (humidityEnable) {
+    lv_obj_add_state(humiditySwitch, LV_STATE_CHECKED);
+  } else {
+    lv_obj_clear_state(humiditySwitch, LV_STATE_CHECKED);
+  }
+  lv_obj_set_pos(humiditySwitch, 50, 340);
 
-  lv_obj_t* sensorSaveButton = lv_btn_create(sensorTabContainer);
-  lv_obj_t* sensorSaveButtonLabel = lv_label_create(sensorSaveButton);
-  lv_label_set_text(sensorSaveButtonLabel, "Save");
-  lv_obj_set_pos(sensorSaveButton, 50, 300);
-  */
+  lv_obj_t* humiditySaveButton = lv_btn_create(sensorTabContainer);
+  lv_obj_t* humiditySaveButtonLabel = lv_label_create(humiditySaveButton);
+  lv_label_set_text(humiditySaveButtonLabel, saveText);
+  lv_obj_set_pos(humiditySaveButton, 50, 400);
+    lv_obj_add_event_cb(humiditySaveButton, [] (lv_event_t * event) {
+
+    static const char * buttons[] = { okText, cancelText, "" };
+    messageBox = lv_msgbox_create(NULL, saveText, "Humidity settings", buttons, true);
+    lv_obj_center(messageBox);
+    lv_obj_add_event_cb(messageBox, [] (lv_event_t * event) {
+      lv_obj_t * obj = lv_event_get_current_target(event);
+      const char * buttonText = lv_msgbox_get_active_btn_text(obj);
+      if (strcmp(buttonText, okText) == 0) {
+        preferences.begin("m5core2_app", false);
+        preferences.putBool(humidityKey, lv_obj_get_state(humiditySwitch));
+        preferences.end();
+      }
+      lv_msgbox_close(messageBox);
+    }, LV_EVENT_VALUE_CHANGED, NULL);
+  }, LV_EVENT_CLICKED, NULL);
+
+  lv_obj_t* pressureLabel = lv_label_create(sensorTabContainer);
+  lv_label_set_text(pressureLabel, pressureText);
+  lv_obj_set_pos(pressureLabel, 0, 450);
+
+  lv_obj_t* pressureEnableLabel = lv_label_create(sensorTabContainer);
+  lv_label_set_text(pressureEnableLabel, enableText);
+  lv_obj_set_pos(pressureEnableLabel, 0, 500);
+
+  static lv_obj_t* pressureSwitch = lv_switch_create(sensorTabContainer);
+  if (pressuerEnable) {
+    lv_obj_add_state(pressureSwitch, LV_STATE_CHECKED);
+  } else {
+    lv_obj_clear_state(pressureSwitch, LV_STATE_CHECKED);
+  }
+  lv_obj_set_pos(pressureSwitch, 50, 490);
+
+  lv_obj_t* pressureSaveButton = lv_btn_create(sensorTabContainer);
+  lv_obj_t* pressureSaveButtonLabel = lv_label_create(pressureSaveButton);
+  lv_label_set_text(pressureSaveButtonLabel, saveText);
+  lv_obj_set_pos(pressureSaveButton, 50, 550);
+    lv_obj_add_event_cb(pressureSaveButton, [] (lv_event_t * event) {
+
+    static const char * buttons[] = { okText, cancelText, "" };
+    messageBox = lv_msgbox_create(NULL, saveText, "Air pressure settings", buttons, true);
+    lv_obj_center(messageBox);
+    lv_obj_add_event_cb(messageBox, [] (lv_event_t * event) {
+      lv_obj_t * obj = lv_event_get_current_target(event);
+      const char * buttonText = lv_msgbox_get_active_btn_text(obj);
+      if (strcmp(buttonText, okText) == 0) {
+        preferences.begin("m5core2_app", false);
+        preferences.putBool(pressuerKey, lv_obj_get_state(pressureSwitch));
+        preferences.end();
+      }
+      lv_msgbox_close(messageBox);
+    }, LV_EVENT_VALUE_CHANGED, NULL);
+  }, LV_EVENT_CLICKED, NULL);
 
   Serial.println( "Setup done" );
 }
@@ -843,25 +968,39 @@ void loop()
       if (mqttClient.connected()) {
         if (queue != NULL) {
           while (uxQueueMessagesWaiting(queue)) {
-            Beacon beacon;
-            if (xQueueReceive(queue, &beacon, 0) == pdTRUE) {
-              if (gnss) {
-                sprintf(message, "%s,%s,%s,%d,%ld,%.6lf,%.6lf", 
-                        beacon.address,
-                        macAddress,
-                        beacon.payload,
-                        beacon.rssi,
-                        beacon.time,
-                        latitude,
-                        longitude);
-              } else {
-                sprintf(message, "%s,%s,%s,%d,%ld", 
-                        beacon.address,
-                        macAddress,
-                        beacon.payload,
-                        beacon.rssi,
-                        beacon.time);
+            struct Beacon beacon;
+            if (xQueueReceive(queue, &beacon, portMAX_DELAY) == pdPASS) {
+              Serial.printf("dst address : %s\n", beacon.address);
+              Serial.printf("dst payload : %s\n", beacon.payload);
+              Serial.printf("dst rssi : %d\n", beacon.rssi);
+              Serial.printf("dst time : %d\n", beacon.time);
+              
+              messageJson["address"] = beacon.address;
+              messageJson["gateway"] = macAddress;
+              messageJson["payload"] = beacon.payload;
+              messageJson["rssi"] = beacon.rssi;
+              messageJson["time"] = beacon.time;
+
+              if (gnssEnable) {
+                messageJson["latitude"] = latitude;
+                messageJson["longitude"] = longitude;
               }
+
+              if (temperatureEnable) {
+                messageJson["temperature"] = temperature;
+              }
+
+              if (humidityEnable) {
+                messageJson["humidity"] = humidity;
+              }
+
+              if (pressuerEnable) {
+                messageJson["airpressuer"] = pressuer;
+
+              }
+              
+              serializeJson(messageJson, message);
+              Serial.println(message);
               mqttClient.publish(topic, message);
               delay(1);
             }
@@ -869,6 +1008,7 @@ void loop()
         }
 
         mqttClient.loop();
+
         if (!bleScan->isScanning()) {
           //Serial.println("BLE scan start");
           bleScan->stop();
@@ -899,7 +1039,7 @@ void loop()
       WiFi.waitForConnectResult();
     }
 
-    if (gnss) {
+    if (gnssEnable) {
       while (softwareSerial.available() > 0) {
         int ch = softwareSerial.read();
         if (gps.encode(ch)) {
@@ -910,6 +1050,21 @@ void loop()
           }
         }
       }
+    }
+
+    if (temperatureEnable) {
+      sht.update();
+      temperature = sht.cTemp;
+    }
+
+    if (humidityEnable) {
+      sht.update();
+      humidity = sht.humidity;
+    }
+
+    if (pressuerEnable) {
+      bmp.update();
+      pressuer = bmp.pressure;
     }
   }
   
