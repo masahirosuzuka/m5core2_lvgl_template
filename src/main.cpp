@@ -333,12 +333,9 @@ void setup() {
     delay(500);
     if (softwareSerial.available() == 0) {
       // GPSが接続されていない
-      Serial.println("GPS Unit not connected");
+      Serial.println("Couldn't find GPS");
       gnssEnable = false;
       softwareSerial.end();
-    } else {
-      // GPSが接続されている
-      Serial.println("GPS Unit connected");
     }
   }
 
@@ -704,27 +701,21 @@ void setup() {
                 File file;
 
                 lv_dropdown_get_selected_str(rootCaDropdown, buf, 32);
-                // Serial.printf("rootCA : %s\n", buf);
                 file = SD.open(buf, "r");
                 rootCA = (char *)ps_malloc(file.size());
                 file.readBytes(rootCA, file.size());
-                // Serial.printf("rootCA : %s\n", rootCA);
                 preferences.putString(rootCAKey, rootCA);
 
                 lv_dropdown_get_selected_str(clientCertDropdown, buf, 32);
-                // Serial.printf("cert : %s\n", buf);
                 file = SD.open(buf, "r");
                 cert = (char *)ps_malloc(file.size());
                 file.readBytes(cert, file.size());
-                // Serial.printf("cert : %s\n", cert);
                 preferences.putString(certKey, cert);
 
                 lv_dropdown_get_selected_str(keyDropdown, buf, 32);
-                // Serial.printf("key : %s\n", buf);
                 file = SD.open(buf, "r");
                 key = (char *)ps_malloc(file.size());
                 file.readBytes(key, file.size());
-                // Serial.printf("key : %s\n", key);
                 preferences.putString(keyKey, key);
 
                 preferences.end();
@@ -1059,7 +1050,6 @@ void loop() {
         mqttClient.loop();
 
         if (!bleScan->isScanning()) {
-          // Serial.println("BLE scan start");
           bleScan->stop();
           bleScan->clearResults();
           bleScan->clearDuplicateCache();
@@ -1070,11 +1060,9 @@ void loop() {
           bleScan->start(scanTime, NULL, false);
         }
       } else {
-        // Serial.println("MQTT closed");
         mqttClient.disconnect();
         mqttClient.setServer(url, port);
         mqttClient.setCallback(mqttCallback);
-        // String clientId = "esp32-client-" + WiFi.macAddress();
         if (mqttClient.connect(clientId)) {
           mqttClient.subscribe(notificationTopic);
         } else {
