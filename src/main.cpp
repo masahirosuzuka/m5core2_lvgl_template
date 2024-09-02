@@ -294,7 +294,7 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
         }
       }
     }
-    delay(10);
+    delay(1);
   }
 };
 
