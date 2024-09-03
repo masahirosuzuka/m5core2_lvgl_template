@@ -88,7 +88,7 @@ struct Beacon {
   char address[20] = {0};
   char payload[100] = {0};
   int rssi;
-  long time;
+  long timestamp;
 };
 QueueHandle_t queue;
 const char *activeScanKey = "activeScan";
@@ -292,7 +292,7 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
         sprintf(beacon.payload, "%s", payload.c_str());
 
         beacon.rssi = rssi;
-        beacon.time = getTime();
+        beacon.timestamp = getTime();
 
         if (queue != NULL) {
           xQueueSend(queue, &beacon, 10);
@@ -901,7 +901,7 @@ void loop() {
               messageJson["gateway"] = macAddress;
               messageJson["payload"] = beacon.payload;
               messageJson["rssi"] = beacon.rssi;
-              messageJson["time"] = beacon.time;
+              messageJson["timestamp"] = beacon.timestamp;
               messageJson["battery"] = getBattLevel();
 
               if ((portA.type == m5gps) && portA.ready) {
