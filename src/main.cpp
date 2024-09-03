@@ -117,17 +117,17 @@ struct PortA {
 struct PortA portA;
 
 // M5 GPS
-double latitude = -1.0;
-double longitude = -1.0;
 SoftwareSerial softwareSerial;
 TinyGPSPlus gps = TinyGPSPlus();
+double latitude = -1.0;
+double longitude = -1.0;
 
 // M5 Env.4
+SHT4X sht;
+BMP280 bmp;
 float temperature = 0.0;
 float humidity = 0.0;
-SHT4X sht;
 float pressuer = 0.0;
-BMP280 bmp;
 
 // LVGL
 static const uint16_t screenWidth = 320;
@@ -233,9 +233,7 @@ void updateSystemBar() {
   if (systemBar != NULL) {
     bool connected = WiFi.isConnected();
     int battLevel = getBattLevel();
-    sprintf(systemBarText, systemBarFormat,
-            ((portA.type == m5gps) && portA.ready) ? LV_SYMBOL_GPS : " ",
-            connected ? LV_SYMBOL_WIFI : " ", battLevel);
+    sprintf(systemBarText, systemBarFormat, ((portA.type == m5gps) && portA.ready) ? LV_SYMBOL_GPS : " ", connected ? LV_SYMBOL_WIFI : " ", battLevel);
     lv_label_set_text(systemBar, systemBarText);
   }
 }
@@ -360,16 +358,11 @@ void setup() {
       portA.ready = true;
     }
   } else if (portA.type == m5env4) {
-    if ((!sht.begin(&Wire, SHT40_I2C_ADDR_44, 32, 33, 400000U)) || 
-        (!bmp.begin(&Wire, BMP280_I2C_ADDR, 32, 33, 400000U))) {
+    if ((!sht.begin(&Wire, SHT40_I2C_ADDR_44, 32, 33, 400000U)) || (!bmp.begin(&Wire, BMP280_I2C_ADDR, 32, 33, 400000U))) {
       Serial.println("Couldn't find Env4");
       portA.ready = false;
     } else {
-      bmp.setSampling(BMP280::MODE_NORMAL, 
-                      BMP280::SAMPLING_X2,
-                      BMP280::SAMPLING_X16,
-                      BMP280::FILTER_X16,
-                      BMP280::STANDBY_MS_500);
+      bmp.setSampling(BMP280::MODE_NORMAL, BMP280::SAMPLING_X2, BMP280::SAMPLING_X16, BMP280::FILTER_X16, BMP280::STANDBY_MS_500);
       portA.ready = true;
     }
   }
@@ -389,9 +382,8 @@ void setup() {
   if (WiFi.isConnected()) {
     Serial.println("wifi connect OK");
 
-    configTime(JST, 0, nictNTP); // 時間を同期
-
-    sprintf(clientId, "m5stack-%s", wifiMac); // MQTTクライアントIDを設定
+    configTime(JST, 0, nictNTP);  // 時間を同期
+    sprintf(clientId, "m5stack-%s", wifiMac);  // MQTTクライアントIDを設定
 
     wifiClientSecure.setCACert(rootCA);
     wifiClientSecure.setCertificate(cert);
@@ -409,9 +401,7 @@ void setup() {
   }
 
   int battLevel = getBattLevel();
-  sprintf(systemBarText, systemBarFormat,
-          ((portA.type == m5gps) && portA.ready) ? LV_SYMBOL_GPS : " ",
-          WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
+  sprintf(systemBarText, systemBarFormat, ((portA.type == m5gps) && portA.ready) ? LV_SYMBOL_GPS : " ", WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
 
   // Setup bluetooth
   NimBLEDevice::init("");
@@ -870,7 +860,7 @@ void setup() {
   lv_obj_t *portASaveButtonLabel = lv_label_create(portASaveButton);
   lv_label_set_text(portASaveButtonLabel, saveText);
   lv_obj_set_pos(portASaveButton, 50, 100);
-    lv_obj_add_event_cb(
+  lv_obj_add_event_cb(
       portASaveButton,
       [](lv_event_t *event) {
         static const char *buttons[] = {okText, cancelText, ""};
