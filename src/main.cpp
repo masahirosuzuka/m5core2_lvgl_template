@@ -25,7 +25,7 @@ Preferences preferences;
 
 // SystemBar
 static const char *systemBarFormat = "%s %s %d%%";
-char systemBarMessage[16];
+char systemBarText[16];
 
 // Status
 bool ready = false;
@@ -225,8 +225,8 @@ void updateSystemBar() {
   if (systemBar != NULL) {
     bool connected = WiFi.isConnected();
     int battLevel = getBattLevel();
-    sprintf(systemBarMessage, systemBarFormat, gnssEnable ? LV_SYMBOL_GPS : " ", connected ? LV_SYMBOL_WIFI : " ", battLevel);
-    lv_label_set_text(systemBar, systemBarMessage);
+    sprintf(systemBarText, systemBarFormat, gnssEnable ? LV_SYMBOL_GPS : " ", connected ? LV_SYMBOL_WIFI : " ", battLevel);
+    lv_label_set_text(systemBar, systemBarText);
   }
 }
 
@@ -410,7 +410,7 @@ void setup() {
   }
 
   int battLevel = getBattLevel();
-  sprintf(systemBarMessage, systemBarFormat,
+  sprintf(systemBarText, systemBarFormat,
           gnssEnable ? LV_SYMBOL_GPS : " ", WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
 
   // Setup bluetooth
@@ -466,7 +466,7 @@ void setup() {
   lv_obj_set_size(homeTabContainer, lv_pct(100), lv_pct(100));
 
   systemBar = lv_label_create(homeTabContainer);
-  lv_label_set_text(systemBar, systemBarMessage);
+  lv_label_set_text(systemBar, systemBarText);
   lv_obj_align(systemBar, LV_ALIGN_TOP_RIGHT, 0, 0);
 
   status = lv_label_create(homeTabContainer);
