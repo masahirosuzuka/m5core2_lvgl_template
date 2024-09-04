@@ -103,26 +103,26 @@ int rssiThreshold = -100;
 // Port
 const char *portAKey = "portA";
 
-const char *supportedUnits = "None\nGPS\nEnv.IV";
+const char *supportedUnits = "None\nGPS\nENV IV Unit";
 const int none = 0;
-const int m5gps = 1;
-const int m5env4 = 2;
+const int gpsUnit = 1;
+const int env4Unit = 2;
 
 // PortA
 struct PortA {
   int type = none;
   bool ready;
-};
+} portA;
 
-struct PortA portA;
-
-// M5 GPS
+// GPS
+// https://docs.m5stack.com/ja/unit/gps
 SoftwareSerial softwareSerial;
 TinyGPSPlus gps = TinyGPSPlus();
 double latitude = -1.0;
 double longitude = -1.0;
 
-// M5 Env.4
+// ENV IV Unit
+// https://docs.m5stack.com/ja/unit/ENV%E2%85%A3%20Unit
 SHT4X sht;
 BMP280 bmp;
 float temperature = 0.0;
@@ -233,7 +233,7 @@ void updateSystemBar() {
   if (systemBar != NULL) {
     bool connected = WiFi.isConnected();
     int battLevel = getBattLevel();
-    sprintf(systemBarText, systemBarFormat, ((portA.type == m5gps) && portA.ready) ? LV_SYMBOL_GPS : " ", connected ? LV_SYMBOL_WIFI : " ", battLevel);
+    sprintf(systemBarText, systemBarFormat, ((portA.type == gpsUnit) && portA.ready) ? LV_SYMBOL_GPS : " ", connected ? LV_SYMBOL_WIFI : " ", battLevel);
     lv_label_set_text(systemBar, systemBarText);
   }
 }
@@ -249,7 +249,7 @@ void updateStatus() {
 }
 
 void updateDashboard() {
-  if (portA.type == m5env4 && portA.ready) {
+  if (portA.type == env4Unit && portA.ready) {
     sprintf(dashboardTempratureBuffer, "%.1f °C", temperature);
     lv_label_set_text(dashboardTempertature, dashboardTempratureBuffer);
     sprintf(dashboardHumidityBuffer, "%.1f %%", humidity);
@@ -345,7 +345,7 @@ void setup() {
 
   portA.type = preferences.getInt(portAKey);
   Serial.printf("portA %d\n", portA.type);
-  if (portA.type == m5gps) {
+  if (portA.type == gpsUnit) {
     // ポートをスキャンし、GPSユニットが接続されているか確認する
     softwareSerial.begin(9600, SWSERIAL_8N1, 33, 32, false);
     delay(500);
@@ -357,7 +357,7 @@ void setup() {
     } else {
       portA.ready = true;
     }
-  } else if (portA.type == m5env4) {
+  } else if (portA.type == env4Unit) {
     if ((!sht.begin(&Wire, SHT40_I2C_ADDR_44, 32, 33, 400000U)) || (!bmp.begin(&Wire, BMP280_I2C_ADDR, 32, 33, 400000U))) {
       Serial.println("Couldn't find Env4");
       portA.ready = false;
@@ -401,7 +401,7 @@ void setup() {
   }
 
   int battLevel = getBattLevel();
-  sprintf(systemBarText, systemBarFormat, ((portA.type == m5gps) && portA.ready) ? LV_SYMBOL_GPS : " ", WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
+  sprintf(systemBarText, systemBarFormat, ((portA.type == gpsUnit) && portA.ready) ? LV_SYMBOL_GPS : " ", WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
 
   // Setup bluetooth
   NimBLEDevice::init("");
@@ -852,8 +852,8 @@ void setup() {
   lv_obj_set_pos(unitLabel, 0, 50);
 
   static lv_obj_t *unitDropdown = lv_dropdown_create(sensorTabContainer);
-  lv_dropdown_clear_options(unitDropdown);
-  lv_dropdown_add_option(unitDropdown, supportedUnits, 0);
+  lv_dropdown_set_options(unitDropdown, supportedUnits);
+  lv_dropdown_set_selected(unitDropdown, portA.type);
   lv_obj_set_pos(unitDropdown, 50, 40);
 
   lv_obj_t *portASaveButton = lv_btn_create(sensorTabContainer);
@@ -904,12 +904,12 @@ void loop() {
               messageJson["timestamp"] = beacon.timestamp;
               messageJson["battery"] = getBattLevel();
 
-              if ((portA.type == m5gps) && portA.ready) {
+              if ((portA.type == gpsUnit) && portA.ready) {
                 messageJson["latitude"] = latitude;
                 messageJson["longitude"] = longitude;
               }
 
-              if ((portA.type == m5env4) && portA.ready) {
+              if ((portA.type == env4Unit) && portA.ready) {
                 messageJson["temperature"] = temperature;
                 messageJson["humidity"] = humidity;
                 messageJson["airpressuer"] = pressuer;
@@ -952,7 +952,7 @@ void loop() {
       WiFi.waitForConnectResult();
     }
 
-    if ((portA.type == m5gps) && portA.ready) {
+    if ((portA.type == gpsUnit) && portA.ready) {
       while (softwareSerial.available() > 0) {
         int ch = softwareSerial.read();
         if (gps.encode(ch)) {
@@ -966,7 +966,7 @@ void loop() {
       delay(1);
     }
 
-    if ((portA.type == m5env4) && portA.ready) {
+    if ((portA.type == env4Unit) && portA.ready) {
       sht.update();
       temperature = sht.cTemp;
       humidity = sht.humidity;
