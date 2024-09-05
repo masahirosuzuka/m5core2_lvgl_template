@@ -68,7 +68,7 @@ PubSubClient mqttClient = PubSubClient(wifiClientSecure);
 char clientId[16];
 char topic[32];
 static const char *notificationTopic = "notify";
-char message[256];
+char message[512];
 JsonDocument messageJson;
 
 // Cert
@@ -85,8 +85,8 @@ const char *adv = "ADV";
 const char *srp = "SRP";
 struct Beacon {
   char type[4] = {0};
-  char address[16] = {0};
-  char payload[128] = {0};
+  char address[13] = {0};
+  char payload[125] = {0};
   int rssi;
   long timestamp;
 };
