@@ -85,8 +85,8 @@ const char *adv = "ADV";
 const char *srp = "SRP";
 struct Beacon {
   char type[4] = {0};
-  char address[20] = {0};
-  char payload[100] = {0};
+  char address[16] = {0};
+  char payload[128] = {0};
   int rssi;
   long timestamp;
 };
