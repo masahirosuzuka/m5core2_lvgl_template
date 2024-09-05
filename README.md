@@ -6,12 +6,22 @@
 
   - M5StackCore2
   - M5Core2サポートライブラリ v0.1.5
+  - M5Stack GPS
+  - M5Stack ENV. IV
   - LVGL v8.3
 
 - M5Stack Core2について
 
   - https://m5stack.com/
   - https://www.switch-science.com/collections/m5stack
+
+- M5Stack GPS
+
+  - https://docs.m5stack.com/ja/unit/gps
+
+- M5Stack ENV. IV
+
+  - https://docs.m5stack.com/ja/unit/ENV%E2%85%A3%20Unit
 
 - LVGLについて
 
