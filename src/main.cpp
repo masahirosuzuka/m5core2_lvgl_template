@@ -57,10 +57,12 @@ static const char *mfeedNTP = "ntp.jst.mfeed.ad.jp";
 // MQTT
 static const char *urlKey = "url";
 static const char *portKey = "port";
+static const char *tlsKey = "tls";
 static const char *topicKey = "topic";
 
 char url[64];
 int port = 0;
+bool tls;
 
 WiFiClientSecure wifiClientSecure = WiFiClientSecure();
 PubSubClient mqttClient = PubSubClient(wifiClientSecure);
@@ -315,28 +317,29 @@ void setup() {
 
   sprintf(url, "%s", preferences.getString(urlKey).c_str());
   port = preferences.getInt(portKey, port);
+  tls = preferences.getBool(tlsKey, true);
   sprintf(topic, "%s", preferences.getString(topicKey).c_str());
   Serial.printf("mqttUrl : %s  port : %d topic : %s\n", url, port, topic);
 
-  int rootCASize = preferences.getString(rootCAKey).length();
+  int rootCASize = preferences.getString(rootCAKey, "").length();
   if (rootCASize > 0) {
     rootCA = (char *)ps_malloc(rootCASize + 1);
-    sprintf(rootCA, preferences.getString(rootCAKey).c_str());
+    sprintf(rootCA, preferences.getString(rootCAKey, "").c_str());
     rootCA[rootCASize + 1] = '\0';
     Serial.printf("rootCA : %s\n", rootCA);
   }
 
-  int certSize = preferences.getString(certKey).length();
+  int certSize = preferences.getString(certKey, "").length();
   if (certSize > 0) {
     cert = (char *)ps_malloc(certSize);
-    sprintf(cert, preferences.getString(certKey).c_str());
+    sprintf(cert, preferences.getString(certKey, "").c_str());
     Serial.printf("cert : %s\n", cert);
   }
 
-  int keySize = preferences.getString(keyKey).length();
+  int keySize = preferences.getString(keyKey, "").length();
   if (keySize > 0) {
     key = (char *)ps_malloc(keySize);
-    sprintf(key, preferences.getString(keyKey).c_str());
+    sprintf(key, preferences.getString(keyKey, "").c_str());
     Serial.printf("key : %s\n", key);
   }
 
@@ -385,9 +388,11 @@ void setup() {
     configTime(JST, 0, nictNTP);  // 時間を同期
     sprintf(clientId, "m5stack-%s", wifiMac);  // MQTTクライアントIDを設定
 
-    wifiClientSecure.setCACert(rootCA);
-    wifiClientSecure.setCertificate(cert);
-    wifiClientSecure.setPrivateKey(key);
+    if (tls) {
+      wifiClientSecure.setCACert(rootCA);
+      wifiClientSecure.setCertificate(cert);
+      wifiClientSecure.setPrivateKey(key);
+    }
 
     mqttClient.setServer(url, port);
     mqttClient.connect(clientId);
@@ -596,21 +601,33 @@ void setup() {
   lv_obj_set_pos(portTextarea, 50, 290);
   lv_obj_add_event_cb(portTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
+  lv_obj_t *tlsLabel = lv_label_create(connectionTabContainer);
+  lv_label_set_text(tlsLabel, "TLS");
+  lv_obj_set_pos(tlsLabel, 0, 350);
+
+  static lv_obj_t *tlsSwitch = lv_switch_create(connectionTabContainer);
+  lv_obj_set_pos(tlsSwitch, 50, 340);
+  if (tls) {
+    lv_obj_add_state(tlsSwitch, tls);
+  } else {
+     lv_obj_clear_state(tlsSwitch, tls);
+  }
+
   lv_obj_t *topicLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(topicLabel, topicText);
-  lv_obj_set_pos(topicLabel, 0, 350);
+  lv_obj_set_pos(topicLabel, 0, 400);
 
   static lv_obj_t *topicTextarea = lv_textarea_create(connectionTabContainer);
   lv_textarea_set_text(topicTextarea, topic);
   lv_textarea_set_one_line(topicTextarea, true);
   lv_obj_set_width(topicTextarea, 140);
-  lv_obj_set_pos(topicTextarea, 50, 340);
+  lv_obj_set_pos(topicTextarea, 50, 390);
   lv_obj_add_event_cb(topicTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_t *mqttSaveButton = lv_btn_create(connectionTabContainer);
   lv_obj_t *mqttSaveButtonLabel = lv_label_create(mqttSaveButton);
   lv_label_set_text(mqttSaveButtonLabel, saveText);
-  lv_obj_set_pos(mqttSaveButton, 50, 390);
+  lv_obj_set_pos(mqttSaveButton, 50, 440);
   lv_obj_add_event_cb(
       mqttSaveButton,
       [](lv_event_t *event) {
@@ -619,6 +636,7 @@ void setup() {
 
         sprintf(url, "%s", lv_textarea_get_text(urlTextarea));
         port = atoi(lv_textarea_get_text(portTextarea));
+        tls = lv_obj_get_state(tlsSwitch);
         sprintf(topic, "%s", lv_textarea_get_text(topicTextarea));
 
         Serial.printf("%s, %d, %s\n", url, port, topic);
@@ -635,6 +653,7 @@ void setup() {
                 preferences.begin("m5core2_app", false);
                 preferences.putString(urlKey, url);
                 preferences.putInt(portKey, port);
+                preferences.putBool(tlsKey, tls);
                 preferences.putString(topicKey, topic);
                 preferences.end();
               }
@@ -664,39 +683,39 @@ void setup() {
 
   lv_obj_t *certLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(certLabel, certText);
-  lv_obj_set_pos(certLabel, 0, 450);
+  lv_obj_set_pos(certLabel, 0, 500);
 
   lv_obj_t *rootCaLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(rootCaLabel, rootCAText);
-  lv_obj_set_pos(rootCaLabel, 0, 500);
+  lv_obj_set_pos(rootCaLabel, 0, 550);
 
   static lv_obj_t *rootCaDropdown = lv_dropdown_create(connectionTabContainer);
   lv_dropdown_set_options(rootCaDropdown, files.c_str());
   lv_obj_set_width(rootCaDropdown, 140);
-  lv_obj_set_pos(rootCaDropdown, 50, 490);
+  lv_obj_set_pos(rootCaDropdown, 50, 540);
 
   lv_obj_t *clientCertLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(clientCertLabel, certText);
-  lv_obj_set_pos(clientCertLabel, 0, 550);
+  lv_obj_set_pos(clientCertLabel, 0, 600);
 
   static lv_obj_t *clientCertDropdown = lv_dropdown_create(connectionTabContainer);
   lv_dropdown_set_options(clientCertDropdown, files.c_str());
   lv_obj_set_width(clientCertDropdown, 140);
-  lv_obj_set_pos(clientCertDropdown, 50, 540);
+  lv_obj_set_pos(clientCertDropdown, 50, 590);
 
   lv_obj_t *keyLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(keyLabel, keyText);
-  lv_obj_set_pos(keyLabel, 0, 600);
+  lv_obj_set_pos(keyLabel, 0, 650);
 
   static lv_obj_t *keyDropdown = lv_dropdown_create(connectionTabContainer);
   lv_dropdown_set_options(keyDropdown, files.c_str());
   lv_obj_set_width(keyDropdown, 140);
-  lv_obj_set_pos(keyDropdown, 50, 590);
+  lv_obj_set_pos(keyDropdown, 50, 640);
 
   lv_obj_t *certSaveButton = lv_btn_create(connectionTabContainer);
   lv_obj_t *certSaveButtonLabel = lv_label_create(certSaveButton);
   lv_label_set_text(certSaveButtonLabel, saveText);
-  lv_obj_set_pos(certSaveButton, 50, 640);
+  lv_obj_set_pos(certSaveButton, 50, 690);
   lv_obj_add_event_cb(
       certSaveButton,
       [](lv_event_t *event) {
@@ -744,21 +763,21 @@ void setup() {
 
   lv_obj_t *ntpLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(ntpLabel, ntpText);
-  lv_obj_set_pos(ntpLabel, 0, 700);
+  lv_obj_set_pos(ntpLabel, 0, 750);
 
   lv_obj_t *ntpServerLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(ntpServerLabel, urlText);
-  lv_obj_set_pos(ntpServerLabel, 0, 750);
+  lv_obj_set_pos(ntpServerLabel, 0, 800);
 
   lv_obj_t *ntpDropdown = lv_dropdown_create(connectionTabContainer);
   lv_dropdown_set_options(ntpDropdown, nictNTP);
   lv_obj_set_width(ntpDropdown, 140);
-  lv_obj_set_pos(ntpDropdown, 50, 740);
+  lv_obj_set_pos(ntpDropdown, 50, 790);
 
   lv_obj_t *ntpSaveButton = lv_btn_create(connectionTabContainer);
   lv_obj_t *ntpSaveButtonLabel = lv_label_create(ntpSaveButton);
   lv_label_set_text(ntpSaveButtonLabel, saveText);
-  lv_obj_set_pos(ntpSaveButton, 50, 790);
+  lv_obj_set_pos(ntpSaveButton, 50, 840);
   lv_obj_add_event_cb(
       ntpSaveButton,
       [](lv_event_t *event) {
