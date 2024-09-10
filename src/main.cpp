@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <M5Core2.h>
@@ -275,23 +276,26 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
       if (mqttClient.connected()) {
         struct Beacon beacon;
 
-        String bluetoothAddress = "";
-        for (int i = 0; i < advertisedDevice->getAddress().toString().length(); i++) {
-          if (advertisedDevice->getAddress().toString()[i] != ':') {
-            bluetoothAddress += advertisedDevice->getAddress().toString()[i];
+        char bluetoothAddress[13] = {0};
+        if (advertisedDevice->getAddress().toString().length() == 17) {
+          int index = 0;
+          for (int i = 0; i < advertisedDevice->getAddress().toString().length(); i++) {
+            char ch = advertisedDevice->getAddress().toString()[i];
+            if (ch != ':') {
+              bluetoothAddress[index++] = toupper(ch);
+            }
           }
+          sprintf(beacon.address, "%s", bluetoothAddress);
         }
-        bluetoothAddress.trim();
-        bluetoothAddress.toUpperCase();
-        sprintf(beacon.address, "%s", bluetoothAddress.c_str());
 
-        String payload = "";
-        for (int i = 0; i < advertisedDevice->getPayloadLength(); i++) {
-          payload += String(advertisedDevice->getPayload()[i], HEX);
+        char payload[125] = {0};
+        if (advertisedDevice->getPayloadLength() < 124) {
+          int index = 0;
+          for (int i = 0; i < advertisedDevice->getPayloadLength(); i++) {
+            index += sprintf(&payload[index], "%02X", advertisedDevice->getPayload()[i]);
+          }
+          sprintf(beacon.payload, "%s", payload);
         }
-        payload.trim();
-        payload.toUpperCase();
-        sprintf(beacon.payload, "%s", payload.c_str());
 
         beacon.rssi = rssi;
         beacon.timestamp = getTime();
