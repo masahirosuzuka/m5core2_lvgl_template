@@ -84,10 +84,7 @@ char *cert;
 char *key;
 
 // BLE
-const char *adv = "ADV";
-const char *srp = "SRP";
 struct Beacon {
-  char type[4] = {0};
   char address[13] = {0};
   char payload[125] = {0};
   int rssi;
