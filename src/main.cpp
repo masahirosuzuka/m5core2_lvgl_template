@@ -74,16 +74,20 @@ static const char *notificationTopic = "notify";
 char message[512];
 JsonDocument messageJson;
 
+int retry = 0;
+
 // Cert
-const char *rootCAKey = "rootCA";
-const char *certKey = "cert";
-const char *keyKey = "key";
+static const char *rootCAKey = "rootCA";
+static const char *certKey = "cert";
+static const char *keyKey = "key";
 
 char *rootCA;
 char *cert;
 char *key;
 
 // BLE
+static const char *activeScanKey = "activeScan";
+static const char *rssiThresholdKey = "rssiThreshold";
 struct Beacon {
   char address[13] = {0};
   char payload[125] = {0};
@@ -91,28 +95,27 @@ struct Beacon {
   long timestamp;
 };
 QueueHandle_t queue;
-const char *activeScanKey = "activeScan";
-const char *rssiThresholdKey = "rssiThreshold";
 NimBLEScan *bleScan;
-const int scanTime = 3;
-const int scanInterval = scanTime * 1000;
-const int scanWindow = scanInterval - 100;
+static const int scanTime = 3;
+static const int scanInterval = scanTime * 1000;
+static const int scanWindow = scanInterval - 100;
 bool activeScan = false;
 int rssiThreshold = -100;
 
 // Port
-const char *portAKey = "portA";
+static const char *supportedUnits = "None\nGPS\nENV IV Unit";
+static const int none = 0;
+static const int gpsUnit = 1;
+static const int env4Unit = 2;
 
-const char *supportedUnits = "None\nGPS\nENV IV Unit";
-const int none = 0;
-const int gpsUnit = 1;
-const int env4Unit = 2;
-
-// PortA
-struct PortA {
+struct Port {
   int type = none;
   bool ready;
-} portA;
+};
+
+// Port A
+static const char *portAKey = "portA";
+Port portA;
 
 // GPS
 // https://docs.m5stack.com/ja/unit/gps
@@ -166,13 +169,13 @@ static LGFX lcd;
 
 static lv_obj_t *rootScreen;
 static lv_obj_t *systemBar;
-static lv_obj_t *status;
+static lv_obj_t *connectionStatus;
 static lv_obj_t *dashboardTempertature;
 static lv_obj_t *dashboardHumidity;
 static lv_obj_t *keyboard;
 lv_obj_t *messageBox;
 
-void disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
+static void disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
   int32_t width = area->x2 - area->x1 + 1;
   int32_t height = area->y2 - area->y1 + 1;
   lcd.setAddrWindow(area->x1, area->y1, width, height);
@@ -181,7 +184,7 @@ void disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p)
   lv_disp_flush_ready(disp);
 }
 
-void touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
+static void touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
   if (M5.Touch.ispressed()) {
     data->point.x = M5.Touch.getPressPoint().x;
     data->point.y = M5.Touch.getPressPoint().y;
@@ -191,7 +194,7 @@ void touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
   }
 }
 
-void open_keyboard() {
+static void open_keyboard() {
   if (keyboard == NULL) {
     keyboard = lv_keyboard_create(rootScreen);
   }
@@ -212,14 +215,14 @@ static void textarea_event_cb(lv_event_t *event) {
   }
 }
 
-int getBattLevel() {
+static int getBatLevel() {
   float batVoltage = M5.Axp.GetBatVoltage();
   float batPercentage = (batVoltage < 3.2) ? 0 : (batVoltage - 3.2) * 100;
 
   return (int)batPercentage;
 }
 
-unsigned long getTime() {
+static unsigned long getTime() {
   time_t now;
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo)) {
@@ -229,26 +232,26 @@ unsigned long getTime() {
   return now;
 }
 
-void updateSystemBar() {
+static void updateSystemBar() {
   if (systemBar != NULL) {
     bool connected = WiFi.isConnected();
-    int battLevel = getBattLevel();
+    int battLevel = getBatLevel();
     sprintf(systemBarText, systemBarFormat, ((portA.type == gpsUnit) && portA.ready) ? LV_SYMBOL_GPS : " ", connected ? LV_SYMBOL_WIFI : " ", battLevel);
     lv_label_set_text(systemBar, systemBarText);
   }
 }
 
-void updateStatus() {
-  if (status != NULL) {
+static void updateStatus() {
+  if (connectionStatus != NULL) {
     if (WiFi.isConnected() && mqttClient.connected()) {
-      lv_label_set_text(status, running);
+      lv_label_set_text(connectionStatus, running);
     } else {
-      lv_label_set_text(status, stopped);
+      lv_label_set_text(connectionStatus, stopped);
     }
   }
 }
 
-void updateDashboard() {
+static void updateDashboard() {
   if (portA.type == env4Unit && portA.ready) {
     sprintf(dashboardTempratureBuffer, "%.1f °C", temperature);
     lv_label_set_text(dashboardTempertature, dashboardTempratureBuffer);
@@ -257,7 +260,7 @@ void updateDashboard() {
   }
 }
 
-void mqttCallback(const char *topic, byte *payload, unsigned int length) {
+static void mqttCallback(const char *topic, byte *payload, unsigned int length) {
   Serial.print(topic);
   Serial.print(" : ");
   for (int i = 0; i < length; i++) {
@@ -393,6 +396,8 @@ void setup() {
       wifiClientSecure.setCACert(rootCA);
       wifiClientSecure.setCertificate(cert);
       wifiClientSecure.setPrivateKey(key);
+    } else {
+      wifiClientSecure.setInsecure();
     }
 
     mqttClient.setServer(url, port);
@@ -406,7 +411,7 @@ void setup() {
     mqttClient.disconnect();
   }
 
-  int battLevel = getBattLevel();
+  int battLevel = getBatLevel();
   sprintf(systemBarText, systemBarFormat, ((portA.type == gpsUnit) && portA.ready) ? LV_SYMBOL_GPS : " ", WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
 
   // Setup bluetooth
@@ -465,9 +470,9 @@ void setup() {
   lv_label_set_text(systemBar, systemBarText);
   lv_obj_align(systemBar, LV_ALIGN_TOP_RIGHT, 0, 0);
 
-  status = lv_label_create(homeTabContainer);
-  lv_label_set_text(status, booting);
-  lv_obj_set_pos(status, 0, 0);
+  connectionStatus = lv_label_create(homeTabContainer);
+  lv_label_set_text(connectionStatus, booting);
+  lv_obj_set_pos(connectionStatus, 0, 0);
 
   // ダッシュボード
   static lv_style_t dashboardLabelStyle;
@@ -922,7 +927,7 @@ void loop() {
               messageJson["payload"] = beacon.payload;
               messageJson["rssi"] = beacon.rssi;
               messageJson["timestamp"] = beacon.timestamp;
-              messageJson["battery"] = getBattLevel();
+              messageJson["battery"] = getBatLevel();
 
               if ((portA.type == gpsUnit) && portA.ready) {
                 messageJson["latitude"] = latitude;
@@ -962,8 +967,10 @@ void loop() {
         if (mqttClient.connect(clientId)) {
           mqttClient.subscribe(notificationTopic);
         } else {
-          // Serial.println("Reboot");
-          // ESP.restart();
+          if (retry++ > 10) {
+            Serial.println("Reboot");
+            ESP.restart();
+          }
         }
         delay(500);
       }
