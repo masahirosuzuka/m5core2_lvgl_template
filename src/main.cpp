@@ -111,26 +111,26 @@ static const int env4Unit = 2;
 struct Port {
   int type = none;
   bool ready;
+
+  // GPS
+  // https://docs.m5stack.com/ja/unit/gps
+  SoftwareSerial softwareSerial;
+  TinyGPSPlus gps = TinyGPSPlus();
+  double latitude = -1.0;
+  double longitude = -1.0;
+
+  // ENV IV Unit
+  // https://docs.m5stack.com/ja/unit/ENV%E2%85%A3%20Unit
+  SHT4X sht;
+  BMP280 bmp;
+  float temperature = 0.0;
+  float humidity = 0.0;
+  float pressuer = 0.0;
 };
 
 // Port A
 static const char *portAKey = "portA";
 Port portA;
-
-// GPS
-// https://docs.m5stack.com/ja/unit/gps
-SoftwareSerial softwareSerial;
-TinyGPSPlus gps = TinyGPSPlus();
-double latitude = -1.0;
-double longitude = -1.0;
-
-// ENV IV Unit
-// https://docs.m5stack.com/ja/unit/ENV%E2%85%A3%20Unit
-SHT4X sht;
-BMP280 bmp;
-float temperature = 0.0;
-float humidity = 0.0;
-float pressuer = 0.0;
 
 // LVGL
 static const uint16_t screenWidth = 320;
@@ -253,9 +253,9 @@ static void updateStatus() {
 
 static void updateDashboard() {
   if (portA.type == env4Unit && portA.ready) {
-    sprintf(dashboardTempratureBuffer, "%.1f °C", temperature);
+    sprintf(dashboardTempratureBuffer, "%.1f °C", portA.temperature);
     lv_label_set_text(dashboardTempertature, dashboardTempratureBuffer);
-    sprintf(dashboardHumidityBuffer, "%.1f %%", humidity);
+    sprintf(dashboardHumidityBuffer, "%.1f %%", portA.humidity);
     lv_label_set_text(dashboardHumidity, dashboardHumidityBuffer);
   }
 }
@@ -354,22 +354,22 @@ void setup() {
   Serial.printf("portA %d\n", portA.type);
   if (portA.type == gpsUnit) {
     // ポートをスキャンし、GPSユニットが接続されているか確認する
-    softwareSerial.begin(9600, SWSERIAL_8N1, 33, 32, false);
+    portA.softwareSerial.begin(9600, SWSERIAL_8N1, 33, 32, false);
     delay(500);
-    if (softwareSerial.available() == 0) {
+    if (portA.softwareSerial.available() == 0) {
       // GPSが接続されていない
       Serial.println("Couldn't find GPS");
       portA.ready = false;
-      softwareSerial.end();
+      portA.softwareSerial.end();
     } else {
       portA.ready = true;
     }
   } else if (portA.type == env4Unit) {
-    if ((!sht.begin(&Wire, SHT40_I2C_ADDR_44, 32, 33, 400000U)) || (!bmp.begin(&Wire, BMP280_I2C_ADDR, 32, 33, 400000U))) {
+    if ((!portA.sht.begin(&Wire, SHT40_I2C_ADDR_44, 32, 33, 400000U)) || (!portA.bmp.begin(&Wire, BMP280_I2C_ADDR, 32, 33, 400000U))) {
       Serial.println("Couldn't find Env4");
       portA.ready = false;
     } else {
-      bmp.setSampling(BMP280::MODE_NORMAL, BMP280::SAMPLING_X2, BMP280::SAMPLING_X16, BMP280::FILTER_X16, BMP280::STANDBY_MS_500);
+      portA.bmp.setSampling(BMP280::MODE_NORMAL, BMP280::SAMPLING_X2, BMP280::SAMPLING_X16, BMP280::FILTER_X16, BMP280::STANDBY_MS_500);
       portA.ready = true;
     }
   }
@@ -930,14 +930,14 @@ void loop() {
               messageJson["battery"] = getBatLevel();
 
               if ((portA.type == gpsUnit) && portA.ready) {
-                messageJson["latitude"] = latitude;
-                messageJson["longitude"] = longitude;
+                messageJson["latitude"] = portA.latitude;
+                messageJson["longitude"] = portA.longitude;
               }
 
               if ((portA.type == env4Unit) && portA.ready) {
-                messageJson["temperature"] = temperature;
-                messageJson["humidity"] = humidity;
-                messageJson["airpressuer"] = pressuer;
+                messageJson["temperature"] = portA.temperature;
+                messageJson["humidity"] = portA.humidity;
+                messageJson["airpressuer"] = portA.pressuer;
               }
 
               serializeJson(messageJson, message);
@@ -980,12 +980,12 @@ void loop() {
     }
 
     if ((portA.type == gpsUnit) && portA.ready) {
-      while (softwareSerial.available() > 0) {
-        int ch = softwareSerial.read();
-        if (gps.encode(ch)) {
-          if (gps.location.isValid() && gps.location.isUpdated()) {
-            latitude = gps.location.lat();
-            longitude = gps.location.lng();
+      while (portA.softwareSerial.available() > 0) {
+        int ch = portA.softwareSerial.read();
+        if (portA.gps.encode(ch)) {
+          if (portA.gps.location.isValid() && portA.gps.location.isUpdated()) {
+            portA.latitude = portA.gps.location.lat();
+            portA.longitude = portA.gps.location.lng();
             break;
           }
         }
@@ -994,12 +994,12 @@ void loop() {
     }
 
     if ((portA.type == env4Unit) && portA.ready) {
-      sht.update();
-      temperature = sht.cTemp;
-      humidity = sht.humidity;
+      portA.sht.update();
+      portA.temperature = portA.sht.cTemp;
+      portA.humidity = portA.sht.humidity;
       delay(1);
-      bmp.update();
-      pressuer = bmp.pressure;
+      portA.bmp.update();
+      portA.pressuer = portA.bmp.pressure;
       delay(1);
     }
   }
