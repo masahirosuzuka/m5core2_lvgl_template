@@ -116,16 +116,16 @@ struct Port {
   // https://docs.m5stack.com/ja/unit/gps
   SoftwareSerial softwareSerial;
   TinyGPSPlus gps = TinyGPSPlus();
-  double latitude = -1.0;
-  double longitude = -1.0;
+  //double latitude = -1.0;
+  //double longitude = -1.0;
 
   // ENV IV Unit
   // https://docs.m5stack.com/ja/unit/ENV%E2%85%A3%20Unit
   SHT4X sht;
   BMP280 bmp;
-  float temperature = 0.0;
-  float humidity = 0.0;
-  float pressuer = 0.0;
+  //float temperature = 0.0;
+  //float humidity = 0.0;
+  //float pressuer = 0.0;
 };
 
 // Port A
@@ -253,9 +253,9 @@ static void updateStatus() {
 
 static void updateDashboard() {
   if (portA.type == env4Unit && portA.ready) {
-    sprintf(dashboardTempratureBuffer, "%.1f °C", portA.temperature);
+    sprintf(dashboardTempratureBuffer, "%.1f °C", portA.sht.cTemp);
     lv_label_set_text(dashboardTempertature, dashboardTempratureBuffer);
-    sprintf(dashboardHumidityBuffer, "%.1f %%", portA.humidity);
+    sprintf(dashboardHumidityBuffer, "%.1f %%", portA.sht.humidity);
     lv_label_set_text(dashboardHumidity, dashboardHumidityBuffer);
   }
 }
@@ -929,15 +929,20 @@ void loop() {
               messageJson["timestamp"] = beacon.timestamp;
               messageJson["battery"] = getBatLevel();
 
-              if ((portA.type == gpsUnit) && portA.ready) {
-                messageJson["latitude"] = portA.latitude;
-                messageJson["longitude"] = portA.longitude;
-              }
+              if (portA.ready) {
+                JsonObject portAJson = messageJson.createNestedObject("porta");
+                if (portA.type == gpsUnit) {
+                  JsonObject gpsJson = portAJson.createNestedObject("gps");
+                  gpsJson["latitude"] = portA.gps.location.lat();
+                  gpsJson["longitude"] = portA.gps.location.lng();
+                }
 
-              if ((portA.type == env4Unit) && portA.ready) {
-                messageJson["temperature"] = portA.temperature;
-                messageJson["humidity"] = portA.humidity;
-                messageJson["airpressuer"] = portA.pressuer;
+                if (portA.type == env4Unit) {
+                  JsonObject env4Json = portAJson.createNestedObject("env4");
+                  env4Json["temperature"] = portA.sht.cTemp;
+                  env4Json["humidity"] = portA.sht.humidity;
+                  env4Json["airpressuer"] = portA.bmp.pressure;
+                }
               }
 
               serializeJson(messageJson, message);
@@ -984,8 +989,6 @@ void loop() {
         int ch = portA.softwareSerial.read();
         if (portA.gps.encode(ch)) {
           if (portA.gps.location.isValid() && portA.gps.location.isUpdated()) {
-            portA.latitude = portA.gps.location.lat();
-            portA.longitude = portA.gps.location.lng();
             break;
           }
         }
@@ -995,11 +998,7 @@ void loop() {
 
     if ((portA.type == env4Unit) && portA.ready) {
       portA.sht.update();
-      portA.temperature = portA.sht.cTemp;
-      portA.humidity = portA.sht.humidity;
-      delay(1);
       portA.bmp.update();
-      portA.pressuer = portA.bmp.pressure;
       delay(1);
     }
   }
