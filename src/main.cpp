@@ -12,6 +12,7 @@
 #include <WiFiClientSecure.h>
 #include <lvgl.h>
 #include <lwip/ip.h>
+#include "esp_log.h"
 
 #include <LGFX_AUTODETECT.hpp>
 #include <LovyanGFX.hpp>
@@ -20,6 +21,8 @@
 #include "time.h"
 
 #define JST 3600 * 9
+
+static const char *TAG = "main";
 
 // Preference
 Preferences preferences;
@@ -261,12 +264,8 @@ static void updateDashboard() {
 }
 
 static void mqttCallback(const char *topic, byte *payload, unsigned int length) {
-  Serial.print(topic);
-  Serial.print(" : ");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.print("\n");
+  ESP_LOGD(TAG, "topic : %s\n", topic);
+  ESP_LOGD(TAG, "payload : %s\n", payload);
 }
 
 class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks {
@@ -317,48 +316,48 @@ void setup() {
   preferences.begin("m5core2_app", false);
   sprintf(ssid, "%s", preferences.getString(ssidKey).c_str());
   sprintf(pass, "%s", preferences.getString(passKey).c_str());
-  Serial.printf("ssid : %s  pass : %s\n", ssid, pass);
+  ESP_LOGD(TAG, "ssid : %s  pass : %s\n", ssid, pass);
 
   sprintf(url, "%s", preferences.getString(urlKey).c_str());
   port = preferences.getInt(portKey, port);
   tls = preferences.getBool(tlsKey, true);
   sprintf(topic, "%s", preferences.getString(topicKey).c_str());
-  Serial.printf("mqttUrl : %s  port : %d topic : %s\n", url, port, topic);
+  ESP_LOGD(TAG, "mqttUrl : %s  port : %d topic : %s\n", url, port, topic);
 
   int rootCASize = preferences.getString(rootCAKey, "").length();
   if (rootCASize > 0) {
     rootCA = (char *)ps_malloc(rootCASize + 1);
     sprintf(rootCA, preferences.getString(rootCAKey, "").c_str());
     rootCA[rootCASize + 1] = '\0';
-    Serial.printf("rootCA : %s\n", rootCA);
+    ESP_LOGD(TAG, "rootCA : %s\n", rootCA);
   }
 
   int certSize = preferences.getString(certKey, "").length();
   if (certSize > 0) {
     cert = (char *)ps_malloc(certSize);
     sprintf(cert, preferences.getString(certKey, "").c_str());
-    Serial.printf("cert : %s\n", cert);
+    ESP_LOGD(TAG, "cert : %s\n", cert);
   }
 
   int keySize = preferences.getString(keyKey, "").length();
   if (keySize > 0) {
     key = (char *)ps_malloc(keySize);
     sprintf(key, preferences.getString(keyKey, "").c_str());
-    Serial.printf("key : %s\n", key);
+    ESP_LOGD(TAG, "key : %s\n", key);
   }
 
   activeScan = preferences.getBool(activeScanKey);
   rssiThreshold = preferences.getInt(rssiThresholdKey);
 
   portA.type = preferences.getInt(portAKey);
-  Serial.printf("portA %d\n", portA.type);
+  ESP_LOGD(TAG, "portA %d\n", portA.type);
   if (portA.type == gpsUnit) {
     // ポートをスキャンし、GPSユニットが接続されているか確認する
     portA.softwareSerial.begin(9600, SWSERIAL_8N1, 33, 32, false);
     delay(500);
     if (portA.softwareSerial.available() == 0) {
       // GPSが接続されていない
-      Serial.println("Couldn't find GPS");
+      ESP_LOGE(TAG, "Couldn't find GPS\n");
       portA.ready = false;
       portA.softwareSerial.end();
     } else {
@@ -366,7 +365,7 @@ void setup() {
     }
   } else if (portA.type == env4Unit) {
     if ((!portA.sht.begin(&Wire, SHT40_I2C_ADDR_44, 32, 33, 400000U)) || (!portA.bmp.begin(&Wire, BMP280_I2C_ADDR, 32, 33, 400000U))) {
-      Serial.println("Couldn't find Env4");
+      ESP_LOGE(TAG, "Couldn't find Env4\n");
       portA.ready = false;
     } else {
       portA.bmp.setSampling(BMP280::MODE_NORMAL, BMP280::SAMPLING_X2, BMP280::SAMPLING_X16, BMP280::FILTER_X16, BMP280::STANDBY_MS_500);
@@ -387,7 +386,7 @@ void setup() {
   WiFi.waitForConnectResult();
 
   if (WiFi.isConnected()) {
-    Serial.println("wifi connect OK");
+    ESP_LOGD(TAG, "WiFi connect OK\n");
 
     configTime(JST, 0, nictNTP);  // 時間を同期
     sprintf(clientId, "m5stack-%s", wifiMac);  // MQTTクライアントIDを設定
@@ -422,12 +421,6 @@ void setup() {
   queue = xQueueCreate(5, sizeof(Beacon));
 
   // Setup LVGL
-  String LVGL_Arduino = "Hello Arduino!!!!";
-  LVGL_Arduino += String('V') + lv_version_major() + "." + lv_version_minor() + "." + lv_version_patch();
-
-  Serial.println(LVGL_Arduino);
-  Serial.println("I am LVGL_Arduino");
-
   lcd.begin();
   lcd.setBrightness(128);
   lcd.setColorDepth(24);
@@ -515,7 +508,7 @@ void setup() {
   lv_obj_add_event_cb(
       ssidDropdown,
       [](lv_event_t *event) {
-        Serial.println("ssidDropdown");
+        ESP_LOGD(TAG, "ssidDropdown\n");
         ssids = "";
         lv_dropdown_clear_options(ssidDropdown);
         WiFi.mode(WIFI_STA);
@@ -523,7 +516,7 @@ void setup() {
         delay(100);
         int networks = WiFi.scanNetworks();
         for (int i = 0; i < networks; i++) {
-          Serial.println(WiFi.SSID(i) + " " + WiFi.channel(i) + " " + WiFi.RSSI(i));
+          ESP_LOGD(TAG, "%s\n", WiFi.SSID(i) + " " + WiFi.channel(i) + " " + WiFi.RSSI(i));
           ssids += WiFi.SSID(i) + "\n";
         }
         if (networks > 0) {
@@ -556,7 +549,7 @@ void setup() {
 
         lv_dropdown_get_selected_str(ssidDropdown, ssid, 33);
         sprintf(pass, "%s\0", lv_textarea_get_text(passwordTextarea), 65);
-        Serial.printf("ssid : %s  pass : %s\n", ssid, pass);
+        ESP_LOGD(TAG, "ssid : %s  pass : %s\n", ssid, pass);
 
         static const char *buttons[] = {okText, cancelText, ""};
         messageBox = lv_msgbox_create(NULL, saveText, "SSID and Password", buttons, true);
@@ -637,7 +630,7 @@ void setup() {
   lv_obj_add_event_cb(
       mqttSaveButton,
       [](lv_event_t *event) {
-        Serial.println("mqttSaveButton");
+        ESP_LOGD(TAG, "mqttSaveButton\n");
         ready = false;
 
         sprintf(url, "%s", lv_textarea_get_text(urlTextarea));
@@ -645,7 +638,7 @@ void setup() {
         tls = lv_obj_get_state(tlsSwitch);
         sprintf(topic, "%s", lv_textarea_get_text(topicTextarea));
 
-        Serial.printf("%s, %d, %s\n", url, port, topic);
+        ESP_LOGD(TAG, "%s, %d, %s\n", url, port, topic);
 
         static const char *buttons[] = {okText, cancelText, ""};
         messageBox = lv_msgbox_create(NULL, saveText, "MQTT settings", buttons, true);
@@ -907,7 +900,7 @@ void setup() {
       },
       LV_EVENT_CLICKED, NULL);
 
-  Serial.println("Setup done");
+  ESP_LOGD(TAG, "Setup done\n");
 }
 
 void loop() {
@@ -930,15 +923,16 @@ void loop() {
               messageJson["battery"] = getBatLevel();
 
               if (portA.ready) {
-                JsonObject portAJson = messageJson.createNestedObject("porta");
+                JsonObject portAJson = messageJson["porta"].to<JsonObject>();
+
                 if (portA.type == gpsUnit) {
-                  JsonObject gpsJson = portAJson.createNestedObject("gps");
+                  JsonObject gpsJson = portAJson["gps"].to<JsonObject>();
                   gpsJson["latitude"] = portA.gps.location.lat();
                   gpsJson["longitude"] = portA.gps.location.lng();
                 }
 
                 if (portA.type == env4Unit) {
-                  JsonObject env4Json = portAJson.createNestedObject("env4");
+                  JsonObject env4Json = portAJson["env4"].to<JsonObject>();
                   env4Json["temperature"] = portA.sht.cTemp;
                   env4Json["humidity"] = portA.sht.humidity;
                   env4Json["airpressuer"] = portA.bmp.pressure;
@@ -946,7 +940,7 @@ void loop() {
               }
 
               serializeJson(messageJson, message);
-              Serial.println(message);
+              ESP_LOGD(TAG, "%s\n", message);
               mqttClient.publish(topic, message);
               delay(1);
             }
@@ -973,7 +967,7 @@ void loop() {
           mqttClient.subscribe(notificationTopic);
         } else {
           if (retry++ > 10) {
-            Serial.println("Reboot");
+            ESP_LOGE(TAG,"Reboot\n");
             ESP.restart();
           }
         }
