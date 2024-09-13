@@ -119,16 +119,11 @@ struct Port {
   // https://docs.m5stack.com/ja/unit/gps
   SoftwareSerial softwareSerial;
   TinyGPSPlus gps = TinyGPSPlus();
-  //double latitude = -1.0;
-  //double longitude = -1.0;
 
   // ENV IV Unit
   // https://docs.m5stack.com/ja/unit/ENV%E2%85%A3%20Unit
   SHT4X sht;
   BMP280 bmp;
-  //float temperature = 0.0;
-  //float humidity = 0.0;
-  //float pressuer = 0.0;
 };
 
 // Port A
