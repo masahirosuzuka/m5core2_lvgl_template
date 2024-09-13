@@ -61,6 +61,7 @@ static const char *mfeedNTP = "ntp.jst.mfeed.ad.jp";
 // MQTT
 static const char *urlKey = "url";
 static const char *portKey = "port";
+static const char *clientIdKey = "clientId";
 static const char *tlsKey = "tls";
 static const char *topicKey = "topic";
 
@@ -142,6 +143,8 @@ static const char *passText = "PASS";
 static const char *mqttText = "MQTT";
 static const char *urlText = "URL";
 static const char *portText = "PORT";
+static const char *tlsText = "TLS";
+static const char *clientIdText = "ClientId";
 static const char *topicText = "TOPIC";
 static const char *certText = "Cert";
 static const char *rootCAText = "Root";
@@ -583,7 +586,7 @@ void setup() {
   lv_obj_add_event_cb(urlTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_t *portLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(portLabel, "PORT");
+  lv_label_set_text(portLabel, portText);
   lv_obj_set_pos(portLabel, 0, 300);
 
   static lv_obj_t *portTextarea = lv_textarea_create(connectionTabContainer);
@@ -596,7 +599,7 @@ void setup() {
   lv_obj_add_event_cb(portTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_t *tlsLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(tlsLabel, "TLS");
+  lv_label_set_text(tlsLabel, tlsText);
   lv_obj_set_pos(tlsLabel, 0, 350);
 
   static lv_obj_t *tlsSwitch = lv_switch_create(connectionTabContainer);
