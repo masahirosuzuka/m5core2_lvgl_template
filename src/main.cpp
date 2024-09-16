@@ -610,6 +610,8 @@ void setup() {
      lv_obj_clear_state(tlsSwitch, tls);
   }
 
+  static lv_obj_t* clientIdLabel = lv_label_create(connectionTabContainer);
+
   lv_obj_t *topicLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(topicLabel, topicText);
   lv_obj_set_pos(topicLabel, 0, 400);
