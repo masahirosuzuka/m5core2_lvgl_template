@@ -72,7 +72,7 @@ bool tls;
 WiFiClientSecure wifiClientSecure = WiFiClientSecure();
 PubSubClient mqttClient = PubSubClient(wifiClientSecure);
 
-char clientId[16];
+char clientId[32];
 char topic[32];
 static const char *notificationTopic = "notify";
 char message[512];
@@ -233,6 +233,13 @@ static unsigned long getTime() {
   return now;
 }
 
+static String getWiFiMac() {
+  String wifiMac = WiFi.macAddress();
+  wifiMac.replace(":", "");
+  wifiMac.toUpperCase();
+  return wifiMac;
+}
+
 static void updateSystemBar() {
   if (systemBar != NULL) {
     bool connected = WiFi.isConnected();
@@ -319,8 +326,9 @@ void setup() {
   sprintf(url, "%s", preferences.getString(urlKey).c_str());
   port = preferences.getInt(portKey, port);
   tls = preferences.getBool(tlsKey, true);
+  sprintf(clientId, "%s", preferences.getString(clientIdKey, "m5stack-" + getWiFiMac()).c_str());
   sprintf(topic, "%s", preferences.getString(topicKey).c_str());
-  ESP_LOGD(TAG, "mqttUrl : %s  port : %d topic : %s\n", url, port, topic);
+  ESP_LOGD(TAG, "mqttUrl : %s port : %d clientId : %s topic : %s\n", url, port, clientId, topic);
 
   int rootCASize = preferences.getString(rootCAKey, "").length();
   if (rootCASize > 0) {
@@ -374,8 +382,7 @@ void setup() {
   preferences.end();
 
   // Setup WiFi
-  String wifiMac = WiFi.macAddress();
-  wifiMac.replace(":", "");
+  String wifiMac = getWiFiMac();
   sprintf(macAddress, "%s", wifiMac.c_str());
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, googleDNS, googleDNS2);
@@ -387,7 +394,6 @@ void setup() {
     ESP_LOGD(TAG, "WiFi connect OK\n");
 
     configTime(JST, 0, nictNTP);  // 時間を同期
-    sprintf(clientId, "m5stack-%s", wifiMac);  // MQTTクライアントIDを設定
 
     if (tls) {
       wifiClientSecure.setCACert(rootCA);
@@ -617,6 +623,7 @@ void setup() {
   static lv_obj_t *clientIdTextarea = lv_textarea_create(connectionTabContainer);
   lv_textarea_set_text(clientIdTextarea, clientId);
   lv_textarea_set_one_line(clientIdTextarea, true);
+  lv_textarea_set_max_length(clientIdTextarea, 31);
   lv_obj_set_width(clientIdTextarea, 140);
   lv_obj_set_pos(clientIdTextarea, 50, 390);
   lv_obj_add_event_cb(clientIdTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
