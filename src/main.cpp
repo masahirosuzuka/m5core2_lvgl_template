@@ -486,7 +486,7 @@ void setup() {
   lv_obj_set_pos(dashboardHumidity, 150, 60);
   lv_obj_add_style(dashboardHumidity, &dashboardLabelStyle, 0);
 
-  // WiFi/LTE/MQTT/証明書タブ
+  // WiFi/MQTT/証明書タブ
   lv_obj_t *connectionTab = lv_tabview_add_tab(tabView, LV_SYMBOL_WIFI);
   lv_obj_t *connectionTabContainer = lv_obj_create(connectionTab);
   lv_gridnav_add(connectionTabContainer, LV_GRIDNAV_CTRL_NONE);
