@@ -43,6 +43,7 @@ char dashboardHumidityBuffer[16];
 // WiFi
 static const char *ssidKey = "ssid";
 static const char *passKey = "pass";
+static const int macAddressLength = 12;
 
 char ssid[33] = {0};
 char pass[65] = {0};
@@ -51,7 +52,7 @@ String ssids = "";
 static const IPAddress googleDNS(8, 8, 8, 8);
 static const IPAddress googleDNS2(8, 8, 4, 4);
 
-char macAddress[13] = {0};
+char macAddress[macAddressLength + 1] = {0};
 
 // NTP
 static const char *ntpKey = "ntp";
@@ -92,9 +93,12 @@ char *key;
 // BLE
 static const char *activeScanKey = "activeScan";
 static const char *rssiThresholdKey = "rssiThreshold";
+static const int bluetoothAddressLength = macAddressLength;
+static const int advertisingPayloadLength = 62;
+static const int scanResponsePayloadLength = advertisingPayloadLength;
 struct Beacon {
-  char address[13] = {0};
-  char payload[125] = {0};
+  char address[bluetoothAddressLength + 1] = {0};
+  char payload[advertisingPayloadLength + scanResponsePayloadLength + 1] = {0};
   int rssi;
   long timestamp;
 };
@@ -280,8 +284,8 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
       if (mqttClient.connected()) {
         struct Beacon beacon;
 
-        char bluetoothAddress[13] = {0};
-        if (advertisedDevice->getAddress().toString().length() == 17) {
+        char bluetoothAddress[bluetoothAddressLength + 1] = {0};
+        if (advertisedDevice->getAddress().toString().length() == bluetoothAddressLength + 4) {
           int index = 0;
           for (int i = 0; i < advertisedDevice->getAddress().toString().length(); i++) {
             char ch = advertisedDevice->getAddress().toString()[i];
@@ -292,8 +296,8 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
           sprintf(beacon.address, "%s", bluetoothAddress);
         }
 
-        char payload[125] = {0};
-        if (advertisedDevice->getPayloadLength() < 124) {
+        char payload[advertisingPayloadLength + scanResponsePayloadLength + 1] = {0};
+        if (advertisedDevice->getPayloadLength() < (advertisingPayloadLength + scanResponsePayloadLength)) {
           int index = 0;
           for (int i = 0; i < advertisedDevice->getPayloadLength(); i++) {
             index += sprintf(&payload[index], "%02X", advertisedDevice->getPayload()[i]);
