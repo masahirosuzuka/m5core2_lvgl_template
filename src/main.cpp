@@ -938,12 +938,9 @@ void loop() {
             struct Beacon beacon;
             if (xQueueReceive(queue, &beacon, portMAX_DELAY) == pdPASS) {
               messageJson["gateway"] = macAddress;
-
-              if (beacon.trigger == triggerBeacon) {
-                messageJson["address"] = beacon.address;
-                messageJson["payload"] = beacon.payload;
-                messageJson["rssi"] = beacon.rssi;
-              }
+              messageJson["address"] = beacon.address;
+              messageJson["payload"] = beacon.payload;
+              messageJson["rssi"] = beacon.rssi;
 
               if (portA.ready) {
                 JsonObject portAJson = messageJson["porta"].to<JsonObject>();
