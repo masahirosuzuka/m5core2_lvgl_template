@@ -94,7 +94,7 @@ char *key;
 static const char *activeScanKey = "activeScan";
 static const char *rssiThresholdKey = "rssiThreshold";
 static const int bluetoothAddressLength = macAddressLength;
-static const int advertisingPayloadLength = 62;
+static const int advertisingPayloadLength = 31 * 2;
 static const int scanResponsePayloadLength = advertisingPayloadLength;
 struct Beacon {
   char address[bluetoothAddressLength + 1] = {0};
@@ -285,7 +285,7 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
         struct Beacon beacon;
 
         char bluetoothAddress[bluetoothAddressLength + 1] = {0};
-        if (advertisedDevice->getAddress().toString().length() == bluetoothAddressLength + 4) {
+        if (advertisedDevice->getAddress().toString().length() == (bluetoothAddressLength + 5)) {
           int index = 0;
           for (int i = 0; i < advertisedDevice->getAddress().toString().length(); i++) {
             char ch = advertisedDevice->getAddress().toString()[i];
@@ -891,10 +891,10 @@ void setup() {
   lv_label_set_text(unitLabel, unitText);
   lv_obj_set_pos(unitLabel, 0, 50);
 
-  static lv_obj_t *unitDropdown = lv_dropdown_create(sensorTabContainer);
-  lv_dropdown_set_options(unitDropdown, supportedUnits);
-  lv_dropdown_set_selected(unitDropdown, portA.type);
-  lv_obj_set_pos(unitDropdown, 50, 40);
+  static lv_obj_t *portADropdown = lv_dropdown_create(sensorTabContainer);
+  lv_dropdown_set_options(portADropdown, supportedUnits);
+  lv_dropdown_set_selected(portADropdown, portA.type);
+  lv_obj_set_pos(portADropdown, 50, 40);
 
   lv_obj_t *portASaveButton = lv_btn_create(sensorTabContainer);
   lv_obj_t *portASaveButtonLabel = lv_label_create(portASaveButton);
@@ -913,7 +913,7 @@ void setup() {
               const char *buttonText = lv_msgbox_get_active_btn_text(obj);
               if (strcmp(buttonText, okText) == 0) {
                 preferences.begin("m5core2_app", false);
-                preferences.putInt(portAKey, lv_dropdown_get_selected(unitDropdown));
+                preferences.putInt(portAKey, lv_dropdown_get_selected(portADropdown));
                 preferences.end();
               }
               lv_msgbox_close(messageBox);
@@ -937,12 +937,13 @@ void loop() {
           while (uxQueueMessagesWaiting(queue)) {
             struct Beacon beacon;
             if (xQueueReceive(queue, &beacon, portMAX_DELAY) == pdPASS) {
-              messageJson["address"] = beacon.address;
               messageJson["gateway"] = macAddress;
-              messageJson["payload"] = beacon.payload;
-              messageJson["rssi"] = beacon.rssi;
-              messageJson["timestamp"] = beacon.timestamp;
-              messageJson["battery"] = getBatLevel();
+
+              if (beacon.trigger == triggerBeacon) {
+                messageJson["address"] = beacon.address;
+                messageJson["payload"] = beacon.payload;
+                messageJson["rssi"] = beacon.rssi;
+              }
 
               if (portA.ready) {
                 JsonObject portAJson = messageJson["porta"].to<JsonObject>();
@@ -960,6 +961,9 @@ void loop() {
                   env4Json["airpressuer"] = portA.bmp.pressure;
                 }
               }
+
+              messageJson["battery"] = getBatLevel();
+              messageJson["timestamp"] = beacon.timestamp;
 
               serializeJson(messageJson, message);
               ESP_LOGD(TAG, "%s\n", message);
