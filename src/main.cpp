@@ -91,12 +91,20 @@ char *cert;
 char *key;
 
 // BLE
+static const char *scanEnableKey = "scanEnable";
 static const char *activeScanKey = "activeScan";
 static const char *rssiThresholdKey = "rssiThreshold";
 static const int bluetoothAddressLength = macAddressLength;
 static const int advertisingPayloadLength = 31 * 2;
 static const int scanResponsePayloadLength = advertisingPayloadLength;
+
+static const int sourceTypeBeacon = 0;
+static const int sourceTypeTimer = 1;
+
+bool scanEnable = true;
+
 struct Beacon {
+  int source;
   char address[bluetoothAddressLength + 1] = {0};
   char payload[advertisingPayloadLength + scanResponsePayloadLength + 1] = {0};
   int rssi;
@@ -134,6 +142,19 @@ struct Port {
 // Port A
 static const char *portAKey = "portA";
 Port portA;
+
+// Timer
+static const char *timerIntervalKey = "timerInterval";
+static const char *timerIntervals ="None\n10 min\n30 min\n60 min";
+
+static const int sec = 1000000;
+static const int timerIntervalNone = 0;
+static const int timerInterval10min = 10 * 60 * sec;
+static const int timerInterval30min = 30 * 60 * sec;
+static const int timerInterval60min = 60 * 60 * sec;
+
+int timerInterval = timerInterval10min;
+hw_timer_t* timer;
 
 // LVGL
 static const uint16_t screenWidth = 320;
@@ -277,12 +298,27 @@ static void mqttCallback(const char *topic, byte *payload, unsigned int length) 
   ESP_LOGD(TAG, "payload : %s\n", payload);
 }
 
+static void IRAM_ATTR onTimer() {
+  ESP_LOGD(TAG, "onTimer");
+  if (queue != NULL) {
+    struct Beacon beacon;
+
+    beacon.source = sourceTypeTimer;
+    //TODO: 修正
+    //beacon.timestamp = getTime(); //ここでgetTimeを呼ぶとクラッシュする？？？
+
+    xQueueSend(queue, &beacon, portMAX_DELAY);
+  }
+}
+
 class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice *advertisedDevice) {
     int rssi = advertisedDevice->getRSSI();
     if (rssi >= rssiThreshold) {
       if (mqttClient.connected()) {
         struct Beacon beacon;
+
+        beacon.source = sourceTypeBeacon;
 
         char bluetoothAddress[bluetoothAddressLength + 1] = {0};
         if (advertisedDevice->getAddress().toString().length() == (bluetoothAddressLength + 5)) {
@@ -309,7 +345,7 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
         beacon.timestamp = getTime();
 
         if (queue != NULL) {
-          xQueueSend(queue, &beacon, 10);
+          xQueueSend(queue, &beacon, portMAX_DELAY);
         }
       }
     }
@@ -356,8 +392,11 @@ void setup() {
     ESP_LOGD(TAG, "key : %s\n", key);
   }
 
+  scanEnable = preferences.getBool(scanEnableKey, true);
   activeScan = preferences.getBool(activeScanKey);
   rssiThreshold = preferences.getInt(rssiThresholdKey);
+
+  timerInterval = preferences.getInt(timerIntervalKey, timerIntervalNone);
 
   portA.type = preferences.getInt(portAKey);
   ESP_LOGD(TAG, "portA %d\n", portA.type);
@@ -426,7 +465,16 @@ void setup() {
   bleScan = NimBLEDevice::getScan();
   bleScan->setAdvertisedDeviceCallbacks(new MyNimBLEAdvertisedDeviceCallbacks());
 
-  queue = xQueueCreate(5, sizeof(Beacon));
+  queue = xQueueCreate(10, sizeof(Beacon));
+
+  if (queue) {
+    if (timerInterval > 0) {
+      timer = timerBegin(0, 80, true);
+      timerAttachInterrupt(timer, &onTimer, true);
+      timerAlarmWrite(timer, timerInterval, true);
+      timerAlarmEnable(timer);
+    }
+  }
 
   // Setup LVGL
   lcd.begin();
@@ -812,13 +860,25 @@ void setup() {
   lv_gridnav_add(bluetoothTabContainer, LV_GRIDNAV_CTRL_NONE);
   lv_obj_set_size(bluetoothTabContainer, lv_pct(100), lv_pct(100));
 
-  lv_obj_t *activeScanLabel = lv_label_create(bluetoothTabContainer);
-  lv_label_set_text(activeScanLabel, bluetoothText);
-  lv_obj_set_pos(activeScanLabel, 0, 0);
+  lv_obj_t *bluetoothLabel = lv_label_create(bluetoothTabContainer);
+  lv_label_set_text(bluetoothLabel, bluetoothText);
+  lv_obj_set_pos(bluetoothLabel, 0, 0);
+
+  lv_obj_t *scanEnableLabel = lv_label_create(bluetoothTabContainer);
+  lv_label_set_text(scanEnableLabel, "Scan");
+  lv_obj_set_pos(scanEnableLabel, 0, 50);
+
+  static lv_obj_t *scanEnableSwitch = lv_switch_create(bluetoothTabContainer);
+  lv_obj_set_pos(scanEnableSwitch, 50, 40);
+  if (scanEnable) {
+    lv_obj_add_state(scanEnableSwitch, LV_STATE_CHECKED);
+  } else {
+    lv_obj_clear_state(scanEnableSwitch, LV_STATE_CHECKED);
+  }
 
   lv_obj_t *activeScanEnableLabel = lv_label_create(bluetoothTabContainer);
   lv_label_set_text(activeScanEnableLabel, activeScanText);
-  lv_obj_set_pos(activeScanEnableLabel, 0, 50);
+  lv_obj_set_pos(activeScanEnableLabel, 0, 100);
 
   static lv_obj_t *activeScanSwitch = lv_switch_create(bluetoothTabContainer);
   if (activeScan) {
@@ -826,21 +886,21 @@ void setup() {
   } else {
     lv_obj_clear_state(activeScanSwitch, LV_STATE_CHECKED);
   }
-  lv_obj_set_pos(activeScanSwitch, 50, 40);
+  lv_obj_set_pos(activeScanSwitch, 50, 90);
 
   lv_obj_t *rssiLabel = lv_label_create(bluetoothTabContainer);
   lv_label_set_text(rssiLabel, rssiText);
-  lv_obj_set_pos(rssiLabel, 0, 100);
+  lv_obj_set_pos(rssiLabel, 0, 150);
 
   static lv_obj_t *rssiThresholdLabel = lv_label_create(bluetoothTabContainer);
   lv_label_set_text_fmt(rssiThresholdLabel, "%d", rssiThreshold);
-  lv_obj_set_pos(rssiThresholdLabel, 210, 100);
+  lv_obj_set_pos(rssiThresholdLabel, 210, 150);
 
   static lv_obj_t *rssiSlider = lv_slider_create(bluetoothTabContainer);
   lv_obj_set_width(rssiSlider, 130);
   lv_slider_set_range(rssiSlider, -120, 0);
   lv_slider_set_value(rssiSlider, rssiThreshold, LV_ANIM_OFF);
-  lv_obj_set_pos(rssiSlider, 60, 100);
+  lv_obj_set_pos(rssiSlider, 60, 150);
   lv_obj_add_event_cb(
       rssiSlider,
       [](lv_event_t *event) {
@@ -853,7 +913,7 @@ void setup() {
   lv_obj_t *bluetoothSaveButton = lv_btn_create(bluetoothTabContainer);
   lv_obj_t *bluetoothSaveButtonLabel = lv_label_create(bluetoothSaveButton);
   lv_label_set_text(bluetoothSaveButtonLabel, saveText);
-  lv_obj_set_pos(bluetoothSaveButton, 50, 140);
+  lv_obj_set_pos(bluetoothSaveButton, 50, 200);
   lv_obj_add_event_cb(
       bluetoothSaveButton,
       [](lv_event_t *event) {
@@ -867,6 +927,7 @@ void setup() {
               const char *buttonText = lv_msgbox_get_active_btn_text(obj);
               if (strcmp(buttonText, okText) == 0) {
                 preferences.begin("m5core2_app", false);
+                preferences.putBool(scanEnableKey, lv_obj_get_state(scanEnableSwitch));
                 preferences.putBool(activeScanKey, lv_obj_get_state(activeScanSwitch));
                 preferences.putInt(rssiThresholdKey, lv_slider_get_value(rssiSlider));
                 preferences.end();
@@ -878,33 +939,62 @@ void setup() {
       LV_EVENT_CLICKED, NULL);
 
   // GPS/内蔵センサタブ
-  lv_obj_t *sensorTab = lv_tabview_add_tab(tabView, LV_SYMBOL_PLUS);
-  lv_obj_t *sensorTabContainer = lv_obj_create(sensorTab);
-  lv_gridnav_add(sensorTabContainer, LV_GRIDNAV_CTRL_NONE);
-  lv_obj_set_size(sensorTabContainer, lv_pct(100), lv_pct(450));
+  lv_obj_t *sensorsTab = lv_tabview_add_tab(tabView, LV_SYMBOL_PLUS);
+  lv_obj_t *sensorsTabContainer = lv_obj_create(sensorsTab);
+  lv_gridnav_add(sensorsTabContainer, LV_GRIDNAV_CTRL_NONE);
+  lv_obj_set_size(sensorsTabContainer, lv_pct(100), lv_pct(450));
 
-  lv_obj_t *portALabel = lv_label_create(sensorTabContainer);
+  lv_obj_t *sensorsLabel = lv_label_create(sensorsTabContainer);
+  lv_label_set_text(sensorsLabel, "Sensors");
+  lv_obj_set_pos(sensorsLabel, 0, 0);
+
+  lv_obj_t *timerEnableLabel = lv_label_create(sensorsTabContainer);
+  lv_label_set_text(timerEnableLabel, "Timer");
+  lv_obj_set_pos(timerEnableLabel, 0, 50);
+
+  static lv_obj_t* timerIntervalDropdown = lv_dropdown_create(sensorsTabContainer);
+  lv_dropdown_set_options(timerIntervalDropdown, timerIntervals);
+  lv_obj_set_width(timerIntervalDropdown, 140);
+  lv_obj_set_pos(timerIntervalDropdown, 50, 40);
+  if (timerInterval == timerIntervalNone) {
+    lv_dropdown_set_selected(timerIntervalDropdown, 0);
+  } else if (timerInterval == timerInterval10min) {
+    lv_dropdown_set_selected(timerIntervalDropdown, 1);
+  } else if (timerInterval == timerInterval30min) {
+    lv_dropdown_set_selected(timerIntervalDropdown, 2);
+  } else if (timerInterval == timerInterval60min) {
+    lv_dropdown_set_selected(timerIntervalDropdown, 3);
+  }
+
+  lv_obj_t *portALabel = lv_label_create(sensorsTabContainer);
   lv_label_set_text(portALabel, portAText);
-  lv_obj_set_pos(portALabel, 0, 0);
+  lv_obj_set_pos(portALabel, 0, 100);
 
-  lv_obj_t *unitLabel = lv_label_create(sensorTabContainer);
-  lv_label_set_text(unitLabel, unitText);
-  lv_obj_set_pos(unitLabel, 0, 50);
-
-  static lv_obj_t *portADropdown = lv_dropdown_create(sensorTabContainer);
+  static lv_obj_t *portADropdown = lv_dropdown_create(sensorsTabContainer);
   lv_dropdown_set_options(portADropdown, supportedUnits);
   lv_dropdown_set_selected(portADropdown, portA.type);
-  lv_obj_set_pos(portADropdown, 50, 40);
+  lv_obj_set_pos(portADropdown, 50, 90);
 
-  lv_obj_t *portASaveButton = lv_btn_create(sensorTabContainer);
-  lv_obj_t *portASaveButtonLabel = lv_label_create(portASaveButton);
-  lv_label_set_text(portASaveButtonLabel, saveText);
-  lv_obj_set_pos(portASaveButton, 50, 100);
+  lv_obj_t *sensorsSaveButton = lv_btn_create(sensorsTabContainer);
+  lv_obj_t *sensorsSaveButtonLabel = lv_label_create(sensorsSaveButton);
+  lv_label_set_text(sensorsSaveButtonLabel, saveText);
+  lv_obj_set_pos(sensorsSaveButton, 50, 150);
   lv_obj_add_event_cb(
-      portASaveButton,
+      sensorsSaveButton,
       [](lv_event_t *event) {
+        int selected = lv_dropdown_get_selected(timerIntervalDropdown);
+        if (selected == 0) {
+          timerInterval = timerIntervalNone;
+        } else if (selected == 1) {
+          timerInterval = timerInterval10min;
+        } else if (selected == 2) {
+          timerInterval = timerInterval30min;
+        } else if (selected == 3) {
+          timerInterval = timerInterval60min;
+        }
+
         static const char *buttons[] = {okText, cancelText, ""};
-        messageBox = lv_msgbox_create(NULL, saveText, "PortA settings", buttons, true);
+        messageBox = lv_msgbox_create(NULL, saveText, "Sensors settings", buttons, true);
         lv_obj_center(messageBox);
         lv_obj_add_event_cb(
             messageBox,
@@ -913,6 +1003,8 @@ void setup() {
               const char *buttonText = lv_msgbox_get_active_btn_text(obj);
               if (strcmp(buttonText, okText) == 0) {
                 preferences.begin("m5core2_app", false);
+                //preferences.putBool(timerKey, lv_obj_get_state(timerEnableSwitch));
+                preferences.putInt(timerIntervalKey, timerInterval);
                 preferences.putInt(portAKey, lv_dropdown_get_selected(portADropdown));
                 preferences.end();
               }
@@ -937,6 +1029,7 @@ void loop() {
           while (uxQueueMessagesWaiting(queue)) {
             struct Beacon beacon;
             if (xQueueReceive(queue, &beacon, portMAX_DELAY) == pdPASS) {
+              messageJson["source"] = beacon.source;
               messageJson["gateway"] = macAddress;
               messageJson["address"] = beacon.address;
               messageJson["payload"] = beacon.payload;
@@ -972,7 +1065,7 @@ void loop() {
 
         mqttClient.loop();
 
-        if (!bleScan->isScanning()) {
+        if (scanEnable && !bleScan->isScanning()) {
           bleScan->stop();
           bleScan->clearResults();
           bleScan->clearDuplicateCache();
