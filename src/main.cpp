@@ -20,6 +20,9 @@
 #include "lv_port_fs_sd.hpp"
 #include "time.h"
 
+#define TINY_GSM_MODEM_SIM7080
+#include <TinyGSM.h>
+
 #define JST 3600 * 9
 
 static const char *TAG = "main";
@@ -51,13 +54,15 @@ String ssids = "";
 
 static const IPAddress googleDNS(8, 8, 8, 8);
 static const IPAddress googleDNS2(8, 8, 4, 4);
-
 char macAddress[macAddressLength + 1] = {0};
 
-// NTP
-static const char *ntpKey = "ntp";
-static const char *nictNTP = "ntp.nict.jp";
-static const char *mfeedNTP = "ntp.jst.mfeed.ad.jp";
+// LTE
+static const char *apnKey = "apn";
+static const char *apnUserKey = "apnUser";
+static const char *apnPassKey = "apnPass";
+char apn[32] = {0};
+char apnUser[32] = {0};
+char apnPass[32] = {0};
 
 // MQTT
 static const char *urlKey = "url";
@@ -90,6 +95,11 @@ char *rootCA;
 char *cert;
 char *key;
 
+// NTP
+static const char *ntpKey = "ntp";
+static const char *nictNTP = "ntp.nict.jp";
+static const char *mfeedNTP = "ntp.jst.mfeed.ad.jp";
+
 // BLE
 static const char *scanEnableKey = "scanEnable";
 static const char *activeScanKey = "activeScan";
@@ -119,10 +129,11 @@ bool activeScan = false;
 int rssiThreshold = -100;
 
 // Port
-static const char *supportedUnits = "None\nGPS\nENV IV Unit";
+static const char *supportedUnits = "None\nGPS\nENV IV Unit\nCatM+GNSS";
 static const int none = 0;
 static const int gpsUnit = 1;
 static const int env4Unit = 2;
+static const int catMGNSSUnit = 3;
 
 struct Port {
   int type = none;
@@ -147,13 +158,13 @@ Port portA;
 static const char *timerIntervalKey = "timerInterval";
 static const char *timerIntervals ="None\n10 min\n30 min\n60 min";
 
-static const int sec = 1000000;
-static const int timerIntervalNone = 0;
-static const int timerInterval10min = 10 * 60 * sec;
-static const int timerInterval30min = 30 * 60 * sec;
-static const int timerInterval60min = 60 * 60 * sec;
+static const uint64_t sec = 1000000;
+static const uint64_t timerIntervalNone = 0;
+static const uint64_t timerInterval10min = 10 * 60 * sec;
+static const uint64_t timerInterval30min = 30 * 60 * sec;
+static const uint64_t timerInterval60min = 60 * 60 * sec;
 
-int timerInterval = timerInterval10min;
+uint64_t timerInterval = timerInterval10min;
 hw_timer_t* timer;
 
 // LVGL
@@ -362,6 +373,11 @@ void setup() {
   sprintf(ssid, "%s", preferences.getString(ssidKey).c_str());
   sprintf(pass, "%s", preferences.getString(passKey).c_str());
   ESP_LOGD(TAG, "ssid : %s  pass : %s\n", ssid, pass);
+
+  sprintf(apn, "%s", preferences.getString(apnKey).c_str(), "");
+  sprintf(apnUser, "%s", preferences.getString(apnUserKey).c_str(), "");
+  sprintf(apnPass, "%s", preferences.getString(apnPassKey).c_str(), "");
+  ESP_LOGD(TAG, "apn : %s user : %s pass : %s\n", apn, apnUser, apnPass);
 
   sprintf(url, "%s", preferences.getString(urlKey).c_str());
   port = preferences.getInt(portKey, port);
@@ -626,26 +642,89 @@ void setup() {
             LV_EVENT_VALUE_CHANGED, NULL);
       },
       LV_EVENT_CLICKED, NULL);
+    
+  lv_obj_t *lteLabel = lv_label_create(connectionTabContainer);
+  lv_label_set_text(lteLabel, "LTE");
+  lv_obj_set_pos(lteLabel, 0, 200);
+
+  lv_obj_t *ltePortLabel = lv_label_create(connectionTabContainer);
+  lv_label_set_text(ltePortLabel, "Port");
+  lv_obj_set_pos(ltePortLabel, 0, 250);
+
+  lv_obj_t *ltePortDropdown = lv_dropdown_create(connectionTabContainer);
+  lv_dropdown_set_options(ltePortDropdown, "None\nPortA");
+  lv_obj_set_pos(ltePortDropdown, 50, 240);
+  
+  lv_obj_t *apnLabel = lv_label_create(connectionTabContainer);
+  lv_label_set_text(apnLabel, "APN");
+  lv_obj_set_pos(apnLabel, 0, 300);
+
+  static lv_obj_t *apnTextarea = lv_textarea_create(connectionTabContainer);
+  lv_textarea_set_text(apnTextarea, apn);
+  lv_textarea_set_one_line(apnTextarea, true);
+  lv_textarea_set_max_length(apnTextarea, 63);
+  lv_obj_set_width(apnTextarea, 140);
+  lv_obj_set_pos(apnTextarea, 50, 290);
+  lv_obj_add_event_cb(apnTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
+
+  lv_obj_t *apnUserLabel = lv_label_create(connectionTabContainer);
+  lv_label_set_text(apnUserLabel, "USER");
+  lv_obj_set_pos(apnUserLabel, 0, 350);
+
+  static lv_obj_t *apnUserTextarea = lv_textarea_create(connectionTabContainer);
+  lv_textarea_set_text(apnUserTextarea, apnUser);
+  lv_textarea_set_one_line(apnUserTextarea, true);
+  lv_textarea_set_max_length(apnUserTextarea, 63);
+  lv_obj_set_width(apnUserTextarea, 140);
+  lv_obj_set_pos(apnUserTextarea, 50, 340);
+  lv_obj_add_event_cb(apnUserTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
+
+  lv_obj_t *apnPassLabel = lv_label_create(connectionTabContainer);
+  lv_label_set_text(apnPassLabel, "PASS");
+  lv_obj_set_pos(apnPassLabel, 0, 400);
+
+  static lv_obj_t *apnPassTextarea = lv_textarea_create(connectionTabContainer);
+  lv_textarea_set_text(apnPassTextarea, apnPass);
+  lv_textarea_set_one_line(apnPassTextarea, true);
+  lv_textarea_set_max_length(apnPassTextarea, 63);
+  lv_obj_set_width(apnPassTextarea, 140);
+  lv_obj_set_pos(apnPassTextarea, 50, 390);
+  lv_obj_add_event_cb(apnPassTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
+
+  lv_obj_t *lteSaveButton = lv_btn_create(connectionTabContainer);
+  lv_obj_t *lteSaveButtonLabel = lv_label_create(lteSaveButton);
+  lv_label_set_text(lteSaveButtonLabel, saveText);
+  lv_obj_set_pos(lteSaveButton, 50, 450);
+  lv_obj_add_event_cb(lteSaveButton, [](lv_event_t *event) {
+    sprintf(apn, "%s", lv_textarea_get_text(apnTextarea));
+    sprintf(apnUser, "%s", lv_textarea_get_text(apnUserTextarea));
+    sprintf(apnPass, "%s", lv_textarea_get_text(apnPassTextarea));
+    preferences.begin("m5core2_app", false);
+    preferences.putString(apnKey, apn);
+    preferences.putString(apnUserKey, apnUser);
+    preferences.putString(apnPassKey, apnPass);
+    preferences.end();
+  }, LV_EVENT_CLICKED, NULL);
 
   lv_obj_t *mqttLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(mqttLabel, mqttText);
-  lv_obj_set_pos(mqttLabel, 0, 200);
+  lv_obj_set_pos(mqttLabel, 0, 500);
 
   lv_obj_t *urlLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(urlLabel, urlText);
-  lv_obj_set_pos(urlLabel, 0, 250);
+  lv_obj_set_pos(urlLabel, 0, 550);
 
   static lv_obj_t *urlTextarea = lv_textarea_create(connectionTabContainer);
   lv_textarea_set_text(urlTextarea, url);
   lv_textarea_set_one_line(urlTextarea, true);
   lv_textarea_set_max_length(urlTextarea, 63);
   lv_obj_set_width(urlTextarea, 140);
-  lv_obj_set_pos(urlTextarea, 50, 240);
+  lv_obj_set_pos(urlTextarea, 50, 540);
   lv_obj_add_event_cb(urlTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_t *portLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(portLabel, portText);
-  lv_obj_set_pos(portLabel, 0, 300);
+  lv_obj_set_pos(portLabel, 0, 600);
 
   static lv_obj_t *portTextarea = lv_textarea_create(connectionTabContainer);
   lv_textarea_set_text(portTextarea, String(port).c_str());
@@ -653,15 +732,15 @@ void setup() {
   lv_textarea_set_accepted_chars(portTextarea, "0123456789");
   lv_textarea_set_max_length(portTextarea, 4);
   lv_obj_set_width(portTextarea, 140);
-  lv_obj_set_pos(portTextarea, 50, 290);
+  lv_obj_set_pos(portTextarea, 50, 590);
   lv_obj_add_event_cb(portTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_t *tlsLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(tlsLabel, tlsText);
-  lv_obj_set_pos(tlsLabel, 0, 350);
+  lv_obj_set_pos(tlsLabel, 0, 650);
 
   static lv_obj_t *tlsSwitch = lv_switch_create(connectionTabContainer);
-  lv_obj_set_pos(tlsSwitch, 50, 340);
+  lv_obj_set_pos(tlsSwitch, 50, 640);
   if (tls) {
     lv_obj_add_state(tlsSwitch, tls);
   } else {
@@ -670,31 +749,31 @@ void setup() {
 
   lv_obj_t *clientIdLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(clientIdLabel, clientIdText);
-  lv_obj_set_pos(clientIdLabel, 0, 400);
+  lv_obj_set_pos(clientIdLabel, 0, 700);
 
   static lv_obj_t *clientIdTextarea = lv_textarea_create(connectionTabContainer);
   lv_textarea_set_text(clientIdTextarea, clientId);
   lv_textarea_set_one_line(clientIdTextarea, true);
   lv_textarea_set_max_length(clientIdTextarea, 31);
   lv_obj_set_width(clientIdTextarea, 140);
-  lv_obj_set_pos(clientIdTextarea, 50, 390);
+  lv_obj_set_pos(clientIdTextarea, 50, 690);
   lv_obj_add_event_cb(clientIdTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_t *topicLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(topicLabel, topicText);
-  lv_obj_set_pos(topicLabel, 0, 450);
+  lv_obj_set_pos(topicLabel, 0, 750);
 
   static lv_obj_t *topicTextarea = lv_textarea_create(connectionTabContainer);
   lv_textarea_set_text(topicTextarea, topic);
   lv_textarea_set_one_line(topicTextarea, true);
   lv_obj_set_width(topicTextarea, 140);
-  lv_obj_set_pos(topicTextarea, 50, 440);
+  lv_obj_set_pos(topicTextarea, 50, 740);
   lv_obj_add_event_cb(topicTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_t *mqttSaveButton = lv_btn_create(connectionTabContainer);
   lv_obj_t *mqttSaveButtonLabel = lv_label_create(mqttSaveButton);
   lv_label_set_text(mqttSaveButtonLabel, saveText);
-  lv_obj_set_pos(mqttSaveButton, 50, 490);
+  lv_obj_set_pos(mqttSaveButton, 50, 800);
   lv_obj_add_event_cb(
       mqttSaveButton,
       [](lv_event_t *event) {
@@ -752,39 +831,39 @@ void setup() {
 
   lv_obj_t *certLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(certLabel, certText);
-  lv_obj_set_pos(certLabel, 0, 550);
+  lv_obj_set_pos(certLabel, 0, 850);
 
   lv_obj_t *rootCaLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(rootCaLabel, rootCAText);
-  lv_obj_set_pos(rootCaLabel, 0, 600);
+  lv_obj_set_pos(rootCaLabel, 0, 900);
 
   static lv_obj_t *rootCaDropdown = lv_dropdown_create(connectionTabContainer);
   lv_dropdown_set_options(rootCaDropdown, files.c_str());
   lv_obj_set_width(rootCaDropdown, 140);
-  lv_obj_set_pos(rootCaDropdown, 50, 590);
+  lv_obj_set_pos(rootCaDropdown, 50, 890);
 
   lv_obj_t *clientCertLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(clientCertLabel, certText);
-  lv_obj_set_pos(clientCertLabel, 0, 650);
+  lv_obj_set_pos(clientCertLabel, 0, 950);
 
   static lv_obj_t *clientCertDropdown = lv_dropdown_create(connectionTabContainer);
   lv_dropdown_set_options(clientCertDropdown, files.c_str());
   lv_obj_set_width(clientCertDropdown, 140);
-  lv_obj_set_pos(clientCertDropdown, 50, 640);
+  lv_obj_set_pos(clientCertDropdown, 50, 940);
 
   lv_obj_t *keyLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(keyLabel, keyText);
-  lv_obj_set_pos(keyLabel, 0, 700);
+  lv_obj_set_pos(keyLabel, 0, 1000);
 
   static lv_obj_t *keyDropdown = lv_dropdown_create(connectionTabContainer);
   lv_dropdown_set_options(keyDropdown, files.c_str());
   lv_obj_set_width(keyDropdown, 140);
-  lv_obj_set_pos(keyDropdown, 50, 690);
+  lv_obj_set_pos(keyDropdown, 50, 990);
 
   lv_obj_t *certSaveButton = lv_btn_create(connectionTabContainer);
   lv_obj_t *certSaveButtonLabel = lv_label_create(certSaveButton);
   lv_label_set_text(certSaveButtonLabel, saveText);
-  lv_obj_set_pos(certSaveButton, 50, 740);
+  lv_obj_set_pos(certSaveButton, 50, 1050);
   lv_obj_add_event_cb(
       certSaveButton,
       [](lv_event_t *event) {
@@ -832,21 +911,21 @@ void setup() {
 
   lv_obj_t *ntpLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(ntpLabel, ntpText);
-  lv_obj_set_pos(ntpLabel, 0, 800);
+  lv_obj_set_pos(ntpLabel, 0, 1100);
 
   lv_obj_t *ntpServerLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(ntpServerLabel, urlText);
-  lv_obj_set_pos(ntpServerLabel, 0, 850);
+  lv_obj_set_pos(ntpServerLabel, 0, 1150);
 
   lv_obj_t *ntpDropdown = lv_dropdown_create(connectionTabContainer);
   lv_dropdown_set_options(ntpDropdown, nictNTP);
   lv_obj_set_width(ntpDropdown, 140);
-  lv_obj_set_pos(ntpDropdown, 50, 840);
+  lv_obj_set_pos(ntpDropdown, 50, 1140);
 
   lv_obj_t *ntpSaveButton = lv_btn_create(connectionTabContainer);
   lv_obj_t *ntpSaveButtonLabel = lv_label_create(ntpSaveButton);
   lv_label_set_text(ntpSaveButtonLabel, saveText);
-  lv_obj_set_pos(ntpSaveButton, 50, 890);
+  lv_obj_set_pos(ntpSaveButton, 50, 1200);
   lv_obj_add_event_cb(
       ntpSaveButton,
       [](lv_event_t *event) {
