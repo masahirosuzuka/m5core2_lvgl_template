@@ -57,9 +57,11 @@ static const IPAddress googleDNS2(8, 8, 4, 4);
 char macAddress[macAddressLength + 1] = {0};
 
 // LTE
+static const char *apnPortKey = "apnPort";
 static const char *apnKey = "apn";
 static const char *apnUserKey = "apnUser";
 static const char *apnPassKey = "apnPass";
+int apnPort = 0;
 char apn[32] = {0};
 char apnUser[32] = {0};
 char apnPass[32] = {0};
@@ -148,6 +150,10 @@ struct Port {
   // https://docs.m5stack.com/ja/unit/ENV%E2%85%A3%20Unit
   SHT4X sht;
   BMP280 bmp;
+
+  // CatM+GNSS
+  // https://docs.m5stack.com/ja/unit/catm_gnss
+  TinyGsm lteClient(SoftwareSerial);
 };
 
 // Port A
@@ -374,6 +380,7 @@ void setup() {
   sprintf(pass, "%s", preferences.getString(passKey).c_str());
   ESP_LOGD(TAG, "ssid : %s  pass : %s\n", ssid, pass);
 
+  apnPort = preferences.getInt(apnPortKey, 0);
   sprintf(apn, "%s", preferences.getString(apnKey).c_str(), "");
   sprintf(apnUser, "%s", preferences.getString(apnUserKey).c_str(), "");
   sprintf(apnPass, "%s", preferences.getString(apnPassKey).c_str(), "");
@@ -651,8 +658,9 @@ void setup() {
   lv_label_set_text(ltePortLabel, "Port");
   lv_obj_set_pos(ltePortLabel, 0, 250);
 
-  lv_obj_t *ltePortDropdown = lv_dropdown_create(connectionTabContainer);
+  static lv_obj_t *ltePortDropdown = lv_dropdown_create(connectionTabContainer);
   lv_dropdown_set_options(ltePortDropdown, "None\nPortA");
+  lv_dropdown_set_selected(ltePortDropdown, apnPort);
   lv_obj_set_pos(ltePortDropdown, 50, 240);
   
   lv_obj_t *apnLabel = lv_label_create(connectionTabContainer);
@@ -698,6 +706,7 @@ void setup() {
   lv_obj_add_event_cb(
     lteSaveButton,
     [](lv_event_t *event) {
+      apnPort = lv_dropdown_get_selected(ltePortDropdown);
       sprintf(apn, "%s", lv_textarea_get_text(apnTextarea));
       sprintf(apnUser, "%s", lv_textarea_get_text(apnUserTextarea));
       sprintf(apnPass, "%s", lv_textarea_get_text(apnPassTextarea));
@@ -712,6 +721,7 @@ void setup() {
           const char *buttonText = lv_msgbox_get_active_btn_text(obj);
           if (strcmp(buttonText, okText) == 0) {
             preferences.begin("m5core2_app", false);
+            preferences.putInt(apnPortKey, apnPort);
             preferences.putString(apnKey, apn);
             preferences.putString(apnUserKey, apnUser);
             preferences.putString(apnPassKey, apnPass);
