@@ -695,15 +695,31 @@ void setup() {
   lv_obj_t *lteSaveButtonLabel = lv_label_create(lteSaveButton);
   lv_label_set_text(lteSaveButtonLabel, saveText);
   lv_obj_set_pos(lteSaveButton, 50, 450);
-  lv_obj_add_event_cb(lteSaveButton, [](lv_event_t *event) {
-    sprintf(apn, "%s", lv_textarea_get_text(apnTextarea));
-    sprintf(apnUser, "%s", lv_textarea_get_text(apnUserTextarea));
-    sprintf(apnPass, "%s", lv_textarea_get_text(apnPassTextarea));
-    preferences.begin("m5core2_app", false);
-    preferences.putString(apnKey, apn);
-    preferences.putString(apnUserKey, apnUser);
-    preferences.putString(apnPassKey, apnPass);
-    preferences.end();
+  lv_obj_add_event_cb(
+    lteSaveButton,
+    [](lv_event_t *event) {
+      sprintf(apn, "%s", lv_textarea_get_text(apnTextarea));
+      sprintf(apnUser, "%s", lv_textarea_get_text(apnUserTextarea));
+      sprintf(apnPass, "%s", lv_textarea_get_text(apnPassTextarea));
+      ESP_LOGD(TAG, "apn : %s, user : %s, pass : %s", apn, apnUser, apnPass);
+      static const char *buttons[] = {okText, cancelText, ""};
+      messageBox = lv_msgbox_create(NULL, saveText, "LTE settings", buttons, true);
+      lv_obj_center(messageBox);
+      lv_obj_add_event_cb(
+        messageBox,
+        [](lv_event_t *event) {
+          lv_obj_t *obj = lv_event_get_current_target(event);
+          const char *buttonText = lv_msgbox_get_active_btn_text(obj);
+          if (strcmp(buttonText, okText) == 0) {
+            preferences.begin("m5core2_app", false);
+            preferences.putString(apnKey, apn);
+            preferences.putString(apnUserKey, apnUser);
+            preferences.putString(apnPassKey, apnPass);
+            preferences.end();
+          }
+          lv_msgbox_close(messageBox);
+        },
+        LV_EVENT_VALUE_CHANGED, NULL);
   }, LV_EVENT_CLICKED, NULL);
 
   lv_obj_t *mqttLabel = lv_label_create(connectionTabContainer);
