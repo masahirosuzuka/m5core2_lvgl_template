@@ -480,6 +480,14 @@ void setup() {
     mqttClient.disconnect();
   }
 
+  // Setup LTE
+  if (apnPort != 0) {
+    ESP_LOGD(TAG, "Setup LTE");
+    if (portA.type == catMGNSSUnit) {
+    
+    }
+  }
+
   int battLevel = getBatLevel();
   sprintf(systemBarText, systemBarFormat, ((portA.type == gpsUnit) && portA.ready) ? LV_SYMBOL_GPS : " ", WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
 
@@ -722,6 +730,9 @@ void setup() {
           if (strcmp(buttonText, okText) == 0) {
             preferences.begin("m5core2_app", false);
             preferences.putInt(apnPortKey, apnPort);
+            if (apnPort == 1) {
+              preferences.putInt(portAKey, catMGNSSUnit);
+            }
             preferences.putString(apnKey, apn);
             preferences.putString(apnUserKey, apnUser);
             preferences.putString(apnPassKey, apnPass);
@@ -1106,11 +1117,15 @@ void setup() {
             [](lv_event_t *event) {
               lv_obj_t *obj = lv_event_get_current_target(event);
               const char *buttonText = lv_msgbox_get_active_btn_text(obj);
+              int portA = lv_dropdown_get_selected(portADropdown);
               if (strcmp(buttonText, okText) == 0) {
                 preferences.begin("m5core2_app", false);
                 //preferences.putBool(timerKey, lv_obj_get_state(timerEnableSwitch));
                 preferences.putInt(timerIntervalKey, timerInterval);
-                preferences.putInt(portAKey, lv_dropdown_get_selected(portADropdown));
+                preferences.putInt(portAKey, portA);
+                if (portA != catMGNSSUnit) {
+                  preferences.putInt(apnPortKey, 0);
+                }
                 preferences.end();
               }
               lv_msgbox_close(messageBox);
