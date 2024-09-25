@@ -59,11 +59,15 @@ char macAddress[macAddressLength + 1] = {0};
 WiFiClientSecure wifiClientSecure = WiFiClientSecure();
 
 // Mobile
-static const char *apnPortKey = "apnPort";
+static const char *gsmPortKey = "apnPort";
 static const char *apnKey = "apn";
 static const char *apnUserKey = "apnUser";
 static const char *apnPassKey = "apnPass";
-int apnPort = 0;
+
+static const int gsmPortNone = 0;
+static const int gsmPortA = 1;
+
+int gsmPort = gsmPortNone;
 char apn[32] = {0};
 char apnUser[32] = {0};
 char apnPass[32] = {0};
@@ -129,7 +133,7 @@ bool activeScan = false;
 int rssiThreshold = -100;
 
 // Port
-static const char *supportedUnits = "None\nGPS\nENV IV Unit\nCatM+GNSS";
+static const char *supportedUnits = "None\nGPS\nENV IV Unit";
 static const int none = 0;
 static const int gpsUnit = 1;
 static const int env4Unit = 2;
@@ -374,11 +378,11 @@ void setup() {
   sprintf(pass, "%s", preferences.getString(passKey, "").c_str());
   ESP_LOGD(TAG, "ssid : %s  pass : %s\n", ssid, pass);
 
-  apnPort = preferences.getInt(apnPortKey, 0);
+  gsmPort = preferences.getInt(gsmPortKey, gsmPortNone);
   sprintf(apn, "%s", preferences.getString(apnKey, "").c_str());
   sprintf(apnUser, "%s", preferences.getString(apnUserKey, "").c_str());
   sprintf(apnPass, "%s", preferences.getString(apnPassKey, "").c_str());
-  ESP_LOGD(TAG, "port : %d apn : %s user : %s pass : %s\n", apnPort, apn, apnUser, apnPass);
+  ESP_LOGD(TAG, "port : %d apn : %s user : %s pass : %s\n", gsmPort, apn, apnUser, apnPass);
 
   sprintf(url, "%s", preferences.getString(urlKey, "").c_str());
   port = preferences.getInt(portKey, port);
@@ -414,6 +418,7 @@ void setup() {
   rssiThreshold = preferences.getInt(rssiThresholdKey, rssiThreshold);
 
   timerInterval = preferences.getInt(timerIntervalKey, timerIntervalNone);
+  portA.type = preferences.getInt(portAKey);
 
   preferences.end();
 
@@ -451,27 +456,28 @@ void setup() {
   }
 
   // Setup PortA
-  portA.type = preferences.getInt(portAKey);
-  ESP_LOGD(TAG, "portA %d\n", portA.type);
-  if (portA.type == gpsUnit) {
-    // ポートをスキャンし、GPSユニットが接続されているか確認する
-    portA.softwareSerial.begin(9600, SWSERIAL_8N1, 33, 32, false);
-    delay(500);
-    if (portA.softwareSerial.available() == 0) {
-      // GPSが接続されていない
-      ESP_LOGE(TAG, "Couldn't find GPS\n");
-      portA.ready = false;
-      portA.softwareSerial.end();
-    } else {
-      portA.ready = true;
-    }
-  } else if (portA.type == env4Unit) {
-    if ((!portA.sht.begin(&Wire, SHT40_I2C_ADDR_44, 32, 33, 400000U)) || (!portA.bmp.begin(&Wire, BMP280_I2C_ADDR, 32, 33, 400000U))) {
-      ESP_LOGE(TAG, "Couldn't find Env4\n");
-      portA.ready = false;
-    } else {
-      portA.bmp.setSampling(BMP280::MODE_NORMAL, BMP280::SAMPLING_X2, BMP280::SAMPLING_X16, BMP280::FILTER_X16, BMP280::STANDBY_MS_500);
-      portA.ready = true;
+  if (gsmPort != gsmPortA) {
+    ESP_LOGD(TAG, "portA %d\n", portA.type);
+    if (portA.type == gpsUnit) {
+      // ポートをスキャンし、GPSユニットが接続されているか確認する
+      portA.softwareSerial.begin(9600, SWSERIAL_8N1, 33, 32, false);
+      delay(500);
+      if (portA.softwareSerial.available() == 0) {
+        // GPSが接続されていない
+        ESP_LOGE(TAG, "Couldn't find GPS\n");
+        portA.ready = false;
+        portA.softwareSerial.end();
+      } else {
+        portA.ready = true;
+      }
+    } else if (portA.type == env4Unit) {
+      if ((!portA.sht.begin(&Wire, SHT40_I2C_ADDR_44, 32, 33, 400000U)) || (!portA.bmp.begin(&Wire, BMP280_I2C_ADDR, 32, 33, 400000U))) {
+        ESP_LOGE(TAG, "Couldn't find Env4\n");
+        portA.ready = false;
+      } else {
+        portA.bmp.setSampling(BMP280::MODE_NORMAL, BMP280::SAMPLING_X2, BMP280::SAMPLING_X16, BMP280::FILTER_X16, BMP280::STANDBY_MS_500);
+        portA.ready = true;
+      }
     }
   }
 
@@ -655,7 +661,7 @@ void setup() {
 
   static lv_obj_t *ltePortDropdown = lv_dropdown_create(connectionTabContainer);
   lv_dropdown_set_options(ltePortDropdown, "None\nPortA");
-  lv_dropdown_set_selected(ltePortDropdown, apnPort);
+  lv_dropdown_set_selected(ltePortDropdown, gsmPort);
   lv_obj_set_pos(ltePortDropdown, 50, 240);
   
   lv_obj_t *apnLabel = lv_label_create(connectionTabContainer);
@@ -701,7 +707,7 @@ void setup() {
   lv_obj_add_event_cb(
     lteSaveButton,
     [](lv_event_t *event) {
-      apnPort = lv_dropdown_get_selected(ltePortDropdown);
+      gsmPort = lv_dropdown_get_selected(ltePortDropdown);
       sprintf(apn, "%s", lv_textarea_get_text(apnTextarea));
       sprintf(apnUser, "%s", lv_textarea_get_text(apnUserTextarea));
       sprintf(apnPass, "%s", lv_textarea_get_text(apnPassTextarea));
@@ -716,10 +722,7 @@ void setup() {
           const char *buttonText = lv_msgbox_get_active_btn_text(obj);
           if (strcmp(buttonText, okText) == 0) {
             preferences.begin("m5core2_app", false);
-            preferences.putInt(apnPortKey, apnPort);
-            if (apnPort == 1) {
-              preferences.putInt(portAKey, catMGNSSUnit);
-            }
+            preferences.putInt(gsmPortKey, gsmPort);
             preferences.putString(apnKey, apn);
             preferences.putString(apnUserKey, apnUser);
             preferences.putString(apnPassKey, apnPass);
@@ -1075,8 +1078,13 @@ void setup() {
 
   static lv_obj_t *portADropdown = lv_dropdown_create(sensorsTabContainer);
   lv_dropdown_set_options(portADropdown, supportedUnits);
+  lv_obj_set_width(portADropdown, 140);
   lv_dropdown_set_selected(portADropdown, portA.type);
   lv_obj_set_pos(portADropdown, 50, 90);
+  if (gsmPort == gsmPortA) {
+    lv_dropdown_set_selected(portADropdown, none);
+    lv_obj_add_state(portADropdown, LV_STATE_DISABLED);
+  }
 
   lv_obj_t *sensorsSaveButton = lv_btn_create(sensorsTabContainer);
   lv_obj_t *sensorsSaveButtonLabel = lv_label_create(sensorsSaveButton);
@@ -1110,9 +1118,6 @@ void setup() {
                 //preferences.putBool(timerKey, lv_obj_get_state(timerEnableSwitch));
                 preferences.putInt(timerIntervalKey, timerInterval);
                 preferences.putInt(portAKey, portA);
-                if (portA != catMGNSSUnit) {
-                  preferences.putInt(apnPortKey, 0);
-                }
                 preferences.end();
               }
               lv_msgbox_close(messageBox);
@@ -1142,20 +1147,22 @@ void loop() {
               messageJson["payload"] = beacon.payload;
               messageJson["rssi"] = beacon.rssi;
 
-              if (portA.ready) {
-                JsonObject portAJson = messageJson["porta"].to<JsonObject>();
+              if (gsmPort != gsmPortA) {
+                if (portA.ready) {
+                  JsonObject portAJson = messageJson["porta"].to<JsonObject>();
 
-                if (portA.type == gpsUnit) {
-                  JsonObject gpsJson = portAJson["gps"].to<JsonObject>();
-                  gpsJson["latitude"] = portA.gps.location.lat();
-                  gpsJson["longitude"] = portA.gps.location.lng();
-                }
+                  if (portA.type == gpsUnit) {
+                    JsonObject gpsJson = portAJson["gps"].to<JsonObject>();
+                    gpsJson["latitude"] = portA.gps.location.lat();
+                    gpsJson["longitude"] = portA.gps.location.lng();
+                  }
 
-                if (portA.type == env4Unit) {
-                  JsonObject env4Json = portAJson["env4"].to<JsonObject>();
-                  env4Json["temperature"] = portA.sht.cTemp;
-                  env4Json["humidity"] = portA.sht.humidity;
-                  env4Json["airpressuer"] = portA.bmp.pressure;
+                  if (portA.type == env4Unit) {
+                    JsonObject env4Json = portAJson["env4"].to<JsonObject>();
+                    env4Json["temperature"] = portA.sht.cTemp;
+                    env4Json["humidity"] = portA.sht.humidity;
+                    env4Json["airpressuer"] = portA.bmp.pressure;
+                  }
                 }
               }
 
@@ -1189,7 +1196,7 @@ void loop() {
         if (mqttClient.connect(clientId)) {
           mqttClient.subscribe(notificationTopic);
         } else {
-          if (retry++ > 10) {
+          if (retry++ > 100) {
             ESP_LOGE(TAG,"Reboot\n");
             ESP.restart();
           }
@@ -1201,22 +1208,24 @@ void loop() {
       WiFi.waitForConnectResult();
     }
 
-    if ((portA.type == gpsUnit) && portA.ready) {
-      while (portA.softwareSerial.available() > 0) {
-        int ch = portA.softwareSerial.read();
-        if (portA.gps.encode(ch)) {
-          if (portA.gps.location.isValid() && portA.gps.location.isUpdated()) {
-            break;
+    if (gsmPort != gsmPortA) {
+      if ((portA.type == gpsUnit) && portA.ready) {
+        while (portA.softwareSerial.available() > 0) {
+          int ch = portA.softwareSerial.read();
+          if (portA.gps.encode(ch)) {
+            if (portA.gps.location.isValid() && portA.gps.location.isUpdated()) {
+              break;
+            }
           }
         }
+        delay(1);
       }
-      delay(1);
-    }
 
-    if ((portA.type == env4Unit) && portA.ready) {
-      portA.sht.update();
-      portA.bmp.update();
-      delay(1);
+      if ((portA.type == env4Unit) && portA.ready) {
+        portA.sht.update();
+        portA.bmp.update();
+        delay(1);
+      }
     }
   }
 
