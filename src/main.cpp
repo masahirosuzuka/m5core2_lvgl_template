@@ -28,6 +28,8 @@
 
 static const char *TAG = "main";
 
+HardwareSerial portASerial(2);
+
 // Preference
 Preferences preferences;
 
@@ -72,6 +74,7 @@ int gsmPort = gsmPortNone;
 char apn[32] = {0};
 char apnUser[32] = {0};
 char apnPass[32] = {0};
+TinyGsm modem(portASerial);
 
 // MQTT
 static const char *urlKey = "url";
@@ -89,11 +92,12 @@ char topic[32];
 static const char *notificationTopic = "notify";
 char message[512];
 JsonDocument messageJson;
-PubSubClient mqttClient = PubSubClient(wifiClientSecure);
-
 static const int sourceTypeBeacon = 0;
 static const int sourceTypeTimer = 1;
 int retry = 0;
+
+PubSubClient mqttClient = PubSubClient(wifiClientSecure);
+TinyGsmClient gsmClient(modem);
 
 // Cert
 static const char *rootCAKey = "rootCA";
@@ -140,7 +144,6 @@ static const int gpsUnit = 1;
 static const int env4Unit = 2;
 static const int catMGNSSUnit = 3;
 
-HardwareSerial portASerial(1);
 struct Port {
   int type = none;
   bool ready;
@@ -652,18 +655,18 @@ void setup() {
       },
       LV_EVENT_CLICKED, NULL);
     
-  lv_obj_t *lteLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(lteLabel, "LTE");
-  lv_obj_set_pos(lteLabel, 0, 200);
+  lv_obj_t *gsmLabel = lv_label_create(connectionTabContainer);
+  lv_label_set_text(gsmLabel, "LTE");
+  lv_obj_set_pos(gsmLabel, 0, 200);
 
-  lv_obj_t *ltePortLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(ltePortLabel, "Port");
-  lv_obj_set_pos(ltePortLabel, 0, 250);
+  lv_obj_t *gsmPortLabel = lv_label_create(connectionTabContainer);
+  lv_label_set_text(gsmPortLabel, "Port");
+  lv_obj_set_pos(gsmPortLabel, 0, 250);
 
-  static lv_obj_t *ltePortDropdown = lv_dropdown_create(connectionTabContainer);
-  lv_dropdown_set_options(ltePortDropdown, "None\nPortA");
-  lv_dropdown_set_selected(ltePortDropdown, gsmPort);
-  lv_obj_set_pos(ltePortDropdown, 50, 240);
+  static lv_obj_t *gsmPortDropdown = lv_dropdown_create(connectionTabContainer);
+  lv_dropdown_set_options(gsmPortDropdown, "None\nPortA");
+  lv_dropdown_set_selected(gsmPortDropdown, gsmPort);
+  lv_obj_set_pos(gsmPortDropdown, 50, 240);
   
   lv_obj_t *apnLabel = lv_label_create(connectionTabContainer);
   lv_label_set_text(apnLabel, "APN");
@@ -701,20 +704,20 @@ void setup() {
   lv_obj_set_pos(apnPassTextarea, 50, 390);
   lv_obj_add_event_cb(apnPassTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
-  lv_obj_t *lteSaveButton = lv_btn_create(connectionTabContainer);
-  lv_obj_t *lteSaveButtonLabel = lv_label_create(lteSaveButton);
-  lv_label_set_text(lteSaveButtonLabel, saveText);
-  lv_obj_set_pos(lteSaveButton, 50, 450);
+  lv_obj_t *gsmSaveButton = lv_btn_create(connectionTabContainer);
+  lv_obj_t *gsmSaveButtonLabel = lv_label_create(gsmSaveButton);
+  lv_label_set_text(gsmSaveButtonLabel, saveText);
+  lv_obj_set_pos(gsmSaveButton, 50, 450);
   lv_obj_add_event_cb(
-    lteSaveButton,
+    gsmSaveButton,
     [](lv_event_t *event) {
-      gsmPort = lv_dropdown_get_selected(ltePortDropdown);
+      gsmPort = lv_dropdown_get_selected(gsmPortDropdown);
       sprintf(apn, "%s", lv_textarea_get_text(apnTextarea));
       sprintf(apnUser, "%s", lv_textarea_get_text(apnUserTextarea));
       sprintf(apnPass, "%s", lv_textarea_get_text(apnPassTextarea));
       ESP_LOGD(TAG, "apn : %s, user : %s, pass : %s", apn, apnUser, apnPass);
       static const char *buttons[] = {okText, cancelText, ""};
-      messageBox = lv_msgbox_create(NULL, saveText, "LTE settings", buttons, true);
+      messageBox = lv_msgbox_create(NULL, saveText, "GSM settings", buttons, true);
       lv_obj_center(messageBox);
       lv_obj_add_event_cb(
         messageBox,
