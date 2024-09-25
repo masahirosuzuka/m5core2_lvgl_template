@@ -370,8 +370,8 @@ void setup() {
 
   // Restore preferences
   preferences.begin("m5core2_app", false);
-  sprintf(ssid, "%s", preferences.getString(ssidKey).c_str());
-  sprintf(pass, "%s", preferences.getString(passKey).c_str());
+  sprintf(ssid, "%s", preferences.getString(ssidKey, "").c_str());
+  sprintf(pass, "%s", preferences.getString(passKey, "").c_str());
   ESP_LOGD(TAG, "ssid : %s  pass : %s\n", ssid, pass);
 
   apnPort = preferences.getInt(apnPortKey, 0);
@@ -380,11 +380,11 @@ void setup() {
   sprintf(apnPass, "%s", preferences.getString(apnPassKey, "").c_str());
   ESP_LOGD(TAG, "port : %d apn : %s user : %s pass : %s\n", apnPort, apn, apnUser, apnPass);
 
-  sprintf(url, "%s", preferences.getString(urlKey).c_str());
+  sprintf(url, "%s", preferences.getString(urlKey, "").c_str());
   port = preferences.getInt(portKey, port);
   tls = preferences.getBool(tlsKey, true);
   sprintf(clientId, "%s", preferences.getString(clientIdKey, "m5stack-" + getWiFiMac()).c_str());
-  sprintf(topic, "%s", preferences.getString(topicKey).c_str());
+  sprintf(topic, "%s", preferences.getString(topicKey).c_str(), "topic");
   ESP_LOGD(TAG, "mqttUrl : %s port : %d clientId : %s topic : %s\n", url, port, clientId, topic);
 
   int rootCASize = preferences.getString(rootCAKey, "").length();
@@ -410,8 +410,8 @@ void setup() {
   }
 
   scanEnable = preferences.getBool(scanEnableKey, true);
-  activeScan = preferences.getBool(activeScanKey);
-  rssiThreshold = preferences.getInt(rssiThresholdKey);
+  activeScan = preferences.getBool(activeScanKey, false);
+  rssiThreshold = preferences.getInt(rssiThresholdKey, rssiThreshold);
 
   timerInterval = preferences.getInt(timerIntervalKey, timerIntervalNone);
 
