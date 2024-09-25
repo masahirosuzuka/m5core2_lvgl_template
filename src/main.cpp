@@ -6,7 +6,8 @@
 #include <NimBLEDevice.h>
 #include <Preferences.h>
 #include <PubSubClient.h>
-#include <SoftwareSerial.h>
+//#include <SoftwareSerial.h>
+#include <HardwareSerial.h>
 #include <TinyGPSPlus.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -139,13 +140,13 @@ static const int gpsUnit = 1;
 static const int env4Unit = 2;
 static const int catMGNSSUnit = 3;
 
+HardwareSerial portASerial(1);
 struct Port {
   int type = none;
   bool ready;
 
   // GPS
   // https://docs.m5stack.com/ja/unit/gps
-  SoftwareSerial softwareSerial;
   TinyGPSPlus gps = TinyGPSPlus();
 
   // ENV IV Unit
@@ -460,13 +461,13 @@ void setup() {
     ESP_LOGD(TAG, "portA %d\n", portA.type);
     if (portA.type == gpsUnit) {
       // ポートをスキャンし、GPSユニットが接続されているか確認する
-      portA.softwareSerial.begin(9600, SWSERIAL_8N1, 33, 32, false);
+      portASerial.begin(9600, SERIAL_8N1, 33, 32, false);
       delay(500);
-      if (portA.softwareSerial.available() == 0) {
+      if (portASerial.available() == 0) {
         // GPSが接続されていない
         ESP_LOGE(TAG, "Couldn't find GPS\n");
         portA.ready = false;
-        portA.softwareSerial.end();
+        portASerial.end();
       } else {
         portA.ready = true;
       }
@@ -1210,8 +1211,8 @@ void loop() {
 
     if (gsmPort != gsmPortA) {
       if ((portA.type == gpsUnit) && portA.ready) {
-        while (portA.softwareSerial.available() > 0) {
-          int ch = portA.softwareSerial.read();
+        while (portASerial.available() > 0) {
+          int ch = portASerial.read();
           if (portA.gps.encode(ch)) {
             if (portA.gps.location.isValid() && portA.gps.location.isUpdated()) {
               break;
