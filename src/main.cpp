@@ -56,7 +56,9 @@ static const IPAddress googleDNS(8, 8, 8, 8);
 static const IPAddress googleDNS2(8, 8, 4, 4);
 char macAddress[macAddressLength + 1] = {0};
 
-// LTE
+WiFiClientSecure wifiClientSecure = WiFiClientSecure();
+
+// Mobile
 static const char *apnPortKey = "apnPort";
 static const char *apnKey = "apn";
 static const char *apnUserKey = "apnUser";
@@ -77,15 +79,15 @@ char url[64];
 int port = 0;
 bool tls;
 
-WiFiClientSecure wifiClientSecure = WiFiClientSecure();
-PubSubClient mqttClient = PubSubClient(wifiClientSecure);
-
 char clientId[32];
 char topic[32];
 static const char *notificationTopic = "notify";
 char message[512];
 JsonDocument messageJson;
+PubSubClient mqttClient = PubSubClient(wifiClientSecure);
 
+static const int sourceTypeBeacon = 0;
+static const int sourceTypeTimer = 1;
 int retry = 0;
 
 // Cert
@@ -109,10 +111,6 @@ static const char *rssiThresholdKey = "rssiThreshold";
 static const int bluetoothAddressLength = macAddressLength;
 static const int advertisingPayloadLength = 31 * 2;
 static const int scanResponsePayloadLength = advertisingPayloadLength;
-
-static const int sourceTypeBeacon = 0;
-static const int sourceTypeTimer = 1;
-
 bool scanEnable = true;
 
 struct Beacon {
@@ -150,10 +148,6 @@ struct Port {
   // https://docs.m5stack.com/ja/unit/ENV%E2%85%A3%20Unit
   SHT4X sht;
   BMP280 bmp;
-
-  // CatM+GNSS
-  // https://docs.m5stack.com/ja/unit/catm_gnss
-  TinyGsm lteClient(SoftwareSerial);
 };
 
 // Port A
@@ -381,10 +375,10 @@ void setup() {
   ESP_LOGD(TAG, "ssid : %s  pass : %s\n", ssid, pass);
 
   apnPort = preferences.getInt(apnPortKey, 0);
-  sprintf(apn, "%s", preferences.getString(apnKey).c_str(), "");
-  sprintf(apnUser, "%s", preferences.getString(apnUserKey).c_str(), "");
-  sprintf(apnPass, "%s", preferences.getString(apnPassKey).c_str(), "");
-  ESP_LOGD(TAG, "apn : %s user : %s pass : %s\n", apn, apnUser, apnPass);
+  sprintf(apn, "%s", preferences.getString(apnKey, "").c_str());
+  sprintf(apnUser, "%s", preferences.getString(apnUserKey, "").c_str());
+  sprintf(apnPass, "%s", preferences.getString(apnPassKey, "").c_str());
+  ESP_LOGD(TAG, "port : %d apn : %s user : %s pass : %s\n", apnPort, apn, apnUser, apnPass);
 
   sprintf(url, "%s", preferences.getString(urlKey).c_str());
   port = preferences.getInt(portKey, port);
@@ -421,30 +415,6 @@ void setup() {
 
   timerInterval = preferences.getInt(timerIntervalKey, timerIntervalNone);
 
-  portA.type = preferences.getInt(portAKey);
-  ESP_LOGD(TAG, "portA %d\n", portA.type);
-  if (portA.type == gpsUnit) {
-    // ポートをスキャンし、GPSユニットが接続されているか確認する
-    portA.softwareSerial.begin(9600, SWSERIAL_8N1, 33, 32, false);
-    delay(500);
-    if (portA.softwareSerial.available() == 0) {
-      // GPSが接続されていない
-      ESP_LOGE(TAG, "Couldn't find GPS\n");
-      portA.ready = false;
-      portA.softwareSerial.end();
-    } else {
-      portA.ready = true;
-    }
-  } else if (portA.type == env4Unit) {
-    if ((!portA.sht.begin(&Wire, SHT40_I2C_ADDR_44, 32, 33, 400000U)) || (!portA.bmp.begin(&Wire, BMP280_I2C_ADDR, 32, 33, 400000U))) {
-      ESP_LOGE(TAG, "Couldn't find Env4\n");
-      portA.ready = false;
-    } else {
-      portA.bmp.setSampling(BMP280::MODE_NORMAL, BMP280::SAMPLING_X2, BMP280::SAMPLING_X16, BMP280::FILTER_X16, BMP280::STANDBY_MS_500);
-      portA.ready = true;
-    }
-  }
-
   preferences.end();
 
   // Setup WiFi
@@ -480,11 +450,28 @@ void setup() {
     mqttClient.disconnect();
   }
 
-  // Setup LTE
-  if (apnPort != 0) {
-    ESP_LOGD(TAG, "Setup LTE");
-    if (portA.type == catMGNSSUnit) {
-    
+  // Setup PortA
+  portA.type = preferences.getInt(portAKey);
+  ESP_LOGD(TAG, "portA %d\n", portA.type);
+  if (portA.type == gpsUnit) {
+    // ポートをスキャンし、GPSユニットが接続されているか確認する
+    portA.softwareSerial.begin(9600, SWSERIAL_8N1, 33, 32, false);
+    delay(500);
+    if (portA.softwareSerial.available() == 0) {
+      // GPSが接続されていない
+      ESP_LOGE(TAG, "Couldn't find GPS\n");
+      portA.ready = false;
+      portA.softwareSerial.end();
+    } else {
+      portA.ready = true;
+    }
+  } else if (portA.type == env4Unit) {
+    if ((!portA.sht.begin(&Wire, SHT40_I2C_ADDR_44, 32, 33, 400000U)) || (!portA.bmp.begin(&Wire, BMP280_I2C_ADDR, 32, 33, 400000U))) {
+      ESP_LOGE(TAG, "Couldn't find Env4\n");
+      portA.ready = false;
+    } else {
+      portA.bmp.setSampling(BMP280::MODE_NORMAL, BMP280::SAMPLING_X2, BMP280::SAMPLING_X16, BMP280::FILTER_X16, BMP280::STANDBY_MS_500);
+      portA.ready = true;
     }
   }
 
