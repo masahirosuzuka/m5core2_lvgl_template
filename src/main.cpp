@@ -6,7 +6,6 @@
 #include <NimBLEDevice.h>
 #include <Preferences.h>
 #include <PubSubClient.h>
-//#include <SoftwareSerial.h>
 #include <HardwareSerial.h>
 #include <TinyGPSPlus.h>
 #include <WiFi.h>
@@ -22,6 +21,8 @@
 #include "time.h"
 
 #define TINY_GSM_MODEM_SIM7080
+#define GSM_AUTOBAUD_MIN 9600
+#define GSM_AUTOBAUD_MAX 115200
 #include <TinyGSM.h>
 
 #define JST 3600 * 9
@@ -75,6 +76,7 @@ char apn[32] = {0};
 char apnUser[32] = {0};
 char apnPass[32] = {0};
 TinyGsm modem(portASerial);
+TinyGsmClient gsmClient(modem);
 
 // MQTT
 static const char *urlKey = "url";
@@ -97,7 +99,7 @@ static const int sourceTypeTimer = 1;
 int retry = 0;
 
 PubSubClient mqttClient = PubSubClient(wifiClientSecure);
-TinyGsmClient gsmClient(modem);
+PubSubClient gsmMqttClient = PubSubClient(gsmClient);
 
 // Cert
 static const char *rootCAKey = "rootCA";
@@ -184,6 +186,9 @@ static const uint16_t padding = 10;
 static const char *wifiText = "WiFi";
 static const char *ssidText = "SSID";
 static const char *passText = "PASS";
+static const char *gsmText = "Mobile";
+static const char *apnText = "APN";
+static const char *userText = "USER";
 static const char *mqttText = "MQTT";
 static const char *urlText = "URL";
 static const char *portText = "PORT";
@@ -195,14 +200,14 @@ static const char *rootCAText = "Root";
 static const char *keyText = "Key";
 static const char *ntpText = "NTP";
 static const char *bluetoothText = "Bluetooth";
+static const char *scanText = "Scan";
 static const char *activeScanText = "Active";
 static const char *rssiText = "RSSI";
+static const char *sensorsText = "Sensors";
+static const char *timerText = "Timer";
 static const char *portAText = "Port A";
 static const char *unitText = "Type";
 static const char *gpsText = "GPS";
-static const char *temperatureText = "Temperature";
-static const char *humidityText = "Humidity";
-static const char *pressureText = "Air pressure";
 static const char *enableText = "Enable";
 static const char *saveText = "Save";
 static const char *okText = "OK";
@@ -459,6 +464,50 @@ void setup() {
     mqttClient.disconnect();
   }
 
+  // Setup Mobile Network
+  if (gsmPort > gsmPortNone) {
+    ESP_LOGD(TAG, "Setup GSM");
+    portASerial.begin(115200, SERIAL_8N1, 33, 32, false);
+    TinyGsmAutoBaud(portASerial, GSM_AUTOBAUD_MIN, GSM_AUTOBAUD_MAX);
+    modem.restart();
+
+    if ((strlen(apn) > 0) && (strlen(apnUser) > 0) && (strlen(apnPass) > 0)) {
+      if (!modem.init()) {
+        ESP_LOGD(TAG, "Modem initialize Failed\n");
+      }
+
+      String modemInfo = modem.getModemInfo();
+      ESP_LOGD(TAG, "%s\n", modemInfo.c_str());
+
+      if (!modem.getSimStatus()) {
+        ESP_LOGD(TAG, "SIM card not inserted\n");
+        return;
+      }
+
+      modem.setNetworkMode(2); // 2: Automatic
+      modem.setPreferredMode(1); // 1: Cat-M only
+      modem.waitForNetwork();
+      if (!modem.isNetworkConnected()) {
+        ESP_LOGD(TAG, "Network connect failed\n");
+        return;
+      }
+
+      modem.gprsConnect(apn, apnUser, apnPass);
+      modem.waitForNetwork();
+
+      if (modem.isGprsConnected()) {
+        ESP_LOGD(TAG, "GSM connect OK\n");
+        ESP_LOGD(TAG, "SIM CCID: %s", modem.getSimCCID().c_str());
+        ESP_LOGD(TAG, "IMEI: %s", modem.getIMEI().c_str());
+        ESP_LOGD(TAG, "Operator: %s", modem.getOperator().c_str());
+        ESP_LOGD(TAG, "Local IP: %s", modem.localIP().toString().c_str());
+        ESP_LOGD(TAG, "Signal quality: %d", modem.getSignalQuality());
+      } else {
+        ESP_LOGD(TAG, "GSM connect Failed\n");
+      }
+    }
+  }
+
   // Setup PortA
   if (gsmPort != gsmPortA) {
     ESP_LOGD(TAG, "portA %d\n", portA.type);
@@ -656,11 +705,11 @@ void setup() {
       LV_EVENT_CLICKED, NULL);
     
   lv_obj_t *gsmLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(gsmLabel, "LTE");
+  lv_label_set_text(gsmLabel, gsmText);
   lv_obj_set_pos(gsmLabel, 0, 200);
 
   lv_obj_t *gsmPortLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(gsmPortLabel, "Port");
+  lv_label_set_text(gsmPortLabel, portText);
   lv_obj_set_pos(gsmPortLabel, 0, 250);
 
   static lv_obj_t *gsmPortDropdown = lv_dropdown_create(connectionTabContainer);
@@ -669,7 +718,7 @@ void setup() {
   lv_obj_set_pos(gsmPortDropdown, 50, 240);
   
   lv_obj_t *apnLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(apnLabel, "APN");
+  lv_label_set_text(apnLabel, apnText);
   lv_obj_set_pos(apnLabel, 0, 300);
 
   static lv_obj_t *apnTextarea = lv_textarea_create(connectionTabContainer);
@@ -681,7 +730,7 @@ void setup() {
   lv_obj_add_event_cb(apnTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_t *apnUserLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(apnUserLabel, "USER");
+  lv_label_set_text(apnUserLabel, userText);
   lv_obj_set_pos(apnUserLabel, 0, 350);
 
   static lv_obj_t *apnUserTextarea = lv_textarea_create(connectionTabContainer);
@@ -693,7 +742,7 @@ void setup() {
   lv_obj_add_event_cb(apnUserTextarea, textarea_event_cb, LV_EVENT_ALL, NULL);
 
   lv_obj_t *apnPassLabel = lv_label_create(connectionTabContainer);
-  lv_label_set_text(apnPassLabel, "PASS");
+  lv_label_set_text(apnPassLabel, passText);
   lv_obj_set_pos(apnPassLabel, 0, 400);
 
   static lv_obj_t *apnPassTextarea = lv_textarea_create(connectionTabContainer);
@@ -775,7 +824,7 @@ void setup() {
   if (tls) {
     lv_obj_add_state(tlsSwitch, tls);
   } else {
-     lv_obj_clear_state(tlsSwitch, tls);
+    lv_obj_clear_state(tlsSwitch, tls);
   }
 
   lv_obj_t *clientIdLabel = lv_label_create(connectionTabContainer);
@@ -975,7 +1024,7 @@ void setup() {
   lv_obj_set_pos(bluetoothLabel, 0, 0);
 
   lv_obj_t *scanEnableLabel = lv_label_create(bluetoothTabContainer);
-  lv_label_set_text(scanEnableLabel, "Scan");
+  lv_label_set_text(scanEnableLabel, scanText);
   lv_obj_set_pos(scanEnableLabel, 0, 50);
 
   static lv_obj_t *scanEnableSwitch = lv_switch_create(bluetoothTabContainer);
@@ -1055,11 +1104,11 @@ void setup() {
   lv_obj_set_size(sensorsTabContainer, lv_pct(100), lv_pct(450));
 
   lv_obj_t *sensorsLabel = lv_label_create(sensorsTabContainer);
-  lv_label_set_text(sensorsLabel, "Sensors");
+  lv_label_set_text(sensorsLabel, sensorsText);
   lv_obj_set_pos(sensorsLabel, 0, 0);
 
   lv_obj_t *timerEnableLabel = lv_label_create(sensorsTabContainer);
-  lv_label_set_text(timerEnableLabel, "Timer");
+  lv_label_set_text(timerEnableLabel, timerText);
   lv_obj_set_pos(timerEnableLabel, 0, 50);
 
   static lv_obj_t* timerIntervalDropdown = lv_dropdown_create(sensorsTabContainer);
@@ -1119,7 +1168,6 @@ void setup() {
               int portA = lv_dropdown_get_selected(portADropdown);
               if (strcmp(buttonText, okText) == 0) {
                 preferences.begin("m5core2_app", false);
-                //preferences.putBool(timerKey, lv_obj_get_state(timerEnableSwitch));
                 preferences.putInt(timerIntervalKey, timerInterval);
                 preferences.putInt(portAKey, portA);
                 preferences.end();
