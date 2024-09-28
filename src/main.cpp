@@ -75,6 +75,38 @@ int gsmPort = gsmPortNone;
 char apn[32] = {0};
 char apnUser[32] = {0};
 char apnPass[32] = {0};
+
+static const char *modemRootCaFileName = "rootCa.pem";
+static const char *modemCertFileName = "cert.pem";
+static const char *modemPrivateKeyFileName = "key.pem";
+
+static const char *awsClass2RootFileName = "awsClass2Root.crt";
+static const char *awsClass2Root = 
+"-----BEGIN CERTIFICATE-----" \
+"MIIEDzCCAvegAwIBAgIBADANBgkqhkiG9w0BAQUFADBoMQswCQYDVQQGEwJVUzEl" \
+"MCMGA1UEChMcU3RhcmZpZWxkIFRlY2hub2xvZ2llcywgSW5jLjEyMDAGA1UECxMp" \
+"U3RhcmZpZWxkIENsYXNzIDIgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwHhcNMDQw" \
+"NjI5MTczOTE2WhcNMzQwNjI5MTczOTE2WjBoMQswCQYDVQQGEwJVUzElMCMGA1UE" \
+"ChMcU3RhcmZpZWxkIFRlY2hub2xvZ2llcywgSW5jLjEyMDAGA1UECxMpU3RhcmZp" \
+"ZWxkIENsYXNzIDIgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwggEgMA0GCSqGSIb3" \
+"DQEBAQUAA4IBDQAwggEIAoIBAQC3Msj+6XGmBIWtDBFk385N78gDGIc/oav7PKaf" \
+"8MOh2tTYbitTkPskpD6E8J7oX+zlJ0T1KKY/e97gKvDIr1MvnsoFAZMej2YcOadN" \
+"+lq2cwQlZut3f+dZxkqZJRRU6ybH838Z1TBwj6+wRir/resp7defqgSHo9T5iaU0" \
+"X9tDkYI22WY8sbi5gv2cOj4QyDvvBmVmepsZGD3/cVE8MC5fvj13c7JdBmzDI1aa" \
+"K4UmkhynArPkPw2vCHmCuDY96pzTNbO8acr1zJ3o/WSNF4Azbl5KXZnJHoe0nRrA" \
+"1W4TNSNe35tfPe/W93bC6j67eA0cQmdrBNj41tpvi/JEoAGrAgEDo4HFMIHCMB0G" \
+"A1UdDgQWBBS/X7fRzt0fhvRbVazc1xDCDqmI5zCBkgYDVR0jBIGKMIGHgBS/X7fR" \
+"zt0fhvRbVazc1xDCDqmI56FspGowaDELMAkGA1UEBhMCVVMxJTAjBgNVBAoTHFN0" \
+"YXJmaWVsZCBUZWNobm9sb2dpZXMsIEluYy4xMjAwBgNVBAsTKVN0YXJmaWVsZCBD" \
+"bGFzcyAyIENlcnRpZmljYXRpb24gQXV0aG9yaXR5ggEAMAwGA1UdEwQFMAMBAf8w" \
+"DQYJKoZIhvcNAQEFBQADggEBAAWdP4id0ckaVaGsafPzWdqbAYcaT1epoXkJKtv3" \
+"L7IezMdeatiDh6GX70k1PncGQVhiv45YuApnP+yz3SFmH8lU+nLMPUxA2IGvd56D" \
+"eruix/U0F47ZEUD0/CwqTRV/p2JdLiXTAAsgGh1o+Re49L2L7ShZ3U0WixeDyLJl" \
+"xy16paq8U4Zt3VekyvggQQto8PT7dL5WXXp59fkdheMtlb71cZBDzI0fmgAKhynp" \
+"VSJYACPq4xJDKVtHCN2MQWplBqjlIapBtJUhlbl90TSrE9atvNziPTnNvT51cKEY" \
+"WQPJIrSPnNVeKtelttQKbfi3QBFGmh95DmK/D5fs4C8fF5Q=" \
+"-----END CERTIFICATE-----";
+
 TinyGsm modem(portASerial);
 TinyGsmClient gsmClient(modem);
 
@@ -410,14 +442,14 @@ void setup() {
 
   int certSize = preferences.getString(certKey, "").length();
   if (certSize > 0) {
-    cert = (char *)ps_malloc(certSize);
+    cert = (char *)ps_malloc(certSize + 1);
     sprintf(cert, preferences.getString(certKey, "").c_str());
     ESP_LOGD(TAG, "cert : %s\n", cert);
   }
 
   int keySize = preferences.getString(keyKey, "").length();
   if (keySize > 0) {
-    key = (char *)ps_malloc(keySize);
+    key = (char *)ps_malloc(keySize + 1);
     sprintf(key, preferences.getString(keyKey, "").c_str());
     ESP_LOGD(TAG, "key : %s\n", key);
   }
@@ -476,9 +508,6 @@ void setup() {
         ESP_LOGD(TAG, "Modem initialize Failed\n");
       }
 
-      String modemInfo = modem.getModemInfo();
-      ESP_LOGD(TAG, "%s\n", modemInfo.c_str());
-
       if (!modem.getSimStatus()) {
         ESP_LOGD(TAG, "SIM card not inserted\n");
         return;
@@ -502,6 +531,95 @@ void setup() {
         ESP_LOGD(TAG, "Operator: %s", modem.getOperator().c_str());
         ESP_LOGD(TAG, "Local IP: %s", modem.localIP().toString().c_str());
         ESP_LOGD(TAG, "Signal quality: %d", modem.getSignalQuality());
+
+        if (tls) {
+          portASerial.println("AT+CFSINIT");
+          delay(1000);
+
+          /*
+          String rootCaString = String(rootCA);
+          rootCaString.trim();
+          ESP_LOGD(TAG, "rootCaStringLenght: %d", rootCaString.length());
+
+          portASerial.println("AT+CFSWFILE=3,\"" + String(modemRootCaFileName) + "\",0," + String(rootCaString.length()) + ",1000");
+          delay(100);
+
+          portASerial.write(rootCaString.c_str());
+          delay(1000);
+           */
+
+          String awsClass2RootString = String(awsClass2Root);
+          awsClass2RootString.trim();
+
+          portASerial.println("AT+CFSWFILE=3,\"" + String(awsClass2RootFileName) + "\",0," + String(awsClass2RootString.length()) + ",1000");
+          delay(100);
+          portASerial.write(awsClass2RootString.c_str());
+          delay(1000);
+
+          String certString = String(cert);
+          certString.trim();
+
+          portASerial.println("AT+CFSWFILE=3,\"" + String(modemCertFileName) + "\",0," + String(certString.length()) + ",1000");
+          delay(100);
+
+          portASerial.write(certString.c_str());
+          delay(1000);
+
+          String keyString = String(key);
+          keyString.trim();
+
+          portASerial.println("AT+CFSWFILE=3,\"" + String(modemPrivateKeyFileName) + "\",0," + String(keyString.length()) + ",1000");
+          delay(100);
+
+          portASerial.write(keyString.c_str());
+          delay(1000);
+
+          portASerial.println("AT+CFSTERM");
+          delay(1000);
+
+          portASerial.println("AT+CSSLCFG=\"CONVERT\",2,\"" + String(awsClass2RootFileName) + "\"");
+          delay(1000);
+
+          portASerial.println("AT+CSSLCFG=\"CONVERT\",1,\"" + String(modemCertFileName) + "\",\"" + String(modemPrivateKeyFileName) + "\"");
+          delay(1000);
+
+          portASerial.println("AT+SMSSL=1,\"" + String(awsClass2RootFileName) + "\",\"" + String(modemCertFileName) + "\"");
+          delay(1000);
+
+          portASerial.println("AT+CSSLCFG=\"sslversion\",0,3");
+          delay(1000);
+
+          portASerial.println("AT+SMCONF=\"URL\"," + String(url) + ",8883");
+          delay(1000);
+
+          portASerial.println("AT+SMCONF=\"CLEANSS\",1");
+          delay(1000);
+
+          portASerial.println("AT+SMCONF=\"KEEPTIME\",180");
+          delay(1000);
+
+          portASerial.println("AT+SMCONF=\"CLIENTID\",\"simmqtt\"");
+          delay(1000);
+
+          portASerial.println("AT+SMCONN");
+          delay(10000);
+
+          portASerial.println("AT+SMSUB=\"testpublish\",1");
+          delay(1000);
+
+          portASerial.println("AT+SMPUB=\"testpublish\",11,1,0");
+          delay(50);
+          
+          portASerial.write("hello world");
+          delay(1000);
+
+          String hexResponse;
+          while(portASerial.available()) {
+            hexResponse += String(portASerial.read(), 16);
+          }
+
+          ESP_LOGD(TAG, "response : %s", hexResponse.c_str());
+        }
       } else {
         ESP_LOGD(TAG, "GSM connect Failed\n");
       }
