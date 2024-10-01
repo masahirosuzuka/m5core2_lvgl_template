@@ -80,6 +80,9 @@ static const char *modemRootCaFileName = "rootCa.pem";
 static const char *modemCertFileName = "cert.pem";
 static const char *modemPrivateKeyFileName = "key.pem";
 
+//
+// SIMCOM 7080G/7090GはAmazonRootCaを使えない？？？
+//
 static const char *awsClass2RootFileName = "awsClass2Root.crt";
 static const char *awsClass2Root = 
 "-----BEGIN CERTIFICATE-----" \
@@ -367,7 +370,7 @@ static void IRAM_ATTR onTimer() {
   }
 }
 
-String sendAT(Stream& serial, String message, int wait) {
+String sendATCommand(Stream& serial, String message, int wait) {
   serial.println(message);
   delay(wait);
   String response;
@@ -522,15 +525,13 @@ void setup() {
     portASerial.begin(115200, SERIAL_8N1, 33, 32, false);
     TinyGsmAutoBaud(portASerial, GSM_AUTOBAUD_MIN, GSM_AUTOBAUD_MAX);
     modem.restart();
+    if (!modem.init()) {
+      ESP_LOGD(TAG, "Modem initialize Failed\n");
+    }
 
     if ((strlen(apn) > 0) && (strlen(apnUser) > 0) && (strlen(apnPass) > 0)) {
-      if (!modem.init()) {
-        ESP_LOGD(TAG, "Modem initialize Failed\n");
-      }
-
       if (!modem.getSimStatus()) {
         ESP_LOGD(TAG, "SIM card not inserted\n");
-        return;
       }
 
       if (!modem.isNetworkConnected()) {
@@ -539,7 +540,6 @@ void setup() {
         modem.waitForNetwork();
         if (!modem.isNetworkConnected()) {
           ESP_LOGD(TAG, "Network connect failed\n");
-          return;
         }
       }
 
@@ -548,7 +548,6 @@ void setup() {
         modem.waitForNetwork();
         if (!modem.isGprsConnected()) {
           ESP_LOGD(TAG, "Gprs connect failed\n");
-          return;
         }
       }
 
@@ -563,10 +562,10 @@ void setup() {
         if (tls) {
           String result;
 
-          result = sendAT(portASerial, "AT", 1000);
+          result = sendATCommand(portASerial, "AT", 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
-          result = sendAT(portASerial, "AT+CFSINIT", 1000);
+          result = sendATCommand(portASerial, "AT+CFSINIT", 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
           //
@@ -585,63 +584,68 @@ void setup() {
 
           String awsClass2RootString = String(awsClass2Root);
           awsClass2RootString.trim();
-          result = sendAT(portASerial, "AT+CFSWFILE=3,\"" + String(awsClass2RootFileName) + "\",0," + String(awsClass2RootString.length()) + ",10000", 100);
+          result = sendATCommand(portASerial, "AT+CFSWFILE=3,\"" + String(awsClass2RootFileName) + "\",0," + String(awsClass2RootString.length()) + ",10000", 100);
           ESP_LOGD(TAG, "result : %s", result.c_str());
           result = sendFile(portASerial, awsClass2RootString.c_str(), 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
           String certString = String(cert);
           certString.trim();
-          result = sendAT(portASerial, "AT+CFSWFILE=3,\"" + String(modemCertFileName) + "\",0," + String(certString.length()) + ",10000", 200);
+          result = sendATCommand(portASerial, "AT+CFSWFILE=3,\"" + String(modemCertFileName) + "\",0," + String(certString.length()) + ",10000", 200);
           ESP_LOGD(TAG, "result : %s", result.c_str());
           result = sendFile(portASerial, certString.c_str(), 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
           String keyString = String(key);
           keyString.trim();
-          result = sendAT(portASerial, "AT+CFSWFILE=3,\"" + String(modemPrivateKeyFileName) + "\",0," + String(keyString.length()) + ",10000", 200);
+          result = sendATCommand(portASerial, "AT+CFSWFILE=3,\"" + String(modemPrivateKeyFileName) + "\",0," + String(keyString.length()) + ",10000", 200);
           ESP_LOGD(TAG, "result : %s", result.c_str());
           result = sendFile(portASerial, keyString.c_str(), 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
-          result = sendAT(portASerial, "AT+CFSTERM", 1000);
+          result = sendATCommand(portASerial, "AT+CFSTERM", 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
-          result = sendAT(portASerial, "AT+CSSLCFG=\"CONVERT\",2,\"" + String(awsClass2RootFileName) + "\"", 1000);
+          result = sendATCommand(portASerial, "AT+CSSLCFG=\"CONVERT\",2,\"" + String(awsClass2RootFileName) + "\"", 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
-          result = sendAT(portASerial, "AT+CSSLCFG=\"CONVERT\",1,\"" + String(modemCertFileName) + "\",\"" + String(modemPrivateKeyFileName) + "\"", 1000);
+          result = sendATCommand(portASerial, "AT+CSSLCFG=\"CONVERT\",1,\"" + String(modemCertFileName) + "\",\"" + String(modemPrivateKeyFileName) + "\"", 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
-          result = sendAT(portASerial, "AT+SMSSL=1,\"" + String(awsClass2RootFileName) + "\",\"" + String(modemCertFileName) + "\"", 1000);
+          result = sendATCommand(portASerial, "AT+SMSSL=1,\"" + String(awsClass2RootFileName) + "\",\"" + String(modemCertFileName) + "\"", 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
-          result = sendAT(portASerial, "AT+CSSLCFG=\"sslversion\",0,3", 1000);
+          result = sendATCommand(portASerial, "AT+CSSLCFG=\"sslversion\",0,3", 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
-          result = sendAT(portASerial, "AT+SMCONF=\"URL\"," + String(url) + ",8883", 1000);
+          result = sendATCommand(portASerial, "AT+SMCONF=\"URL\"," + String(url) + "," + String(port), 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
-          result = sendAT(portASerial, "AT+SMCONF=\"CLEANSS\",1", 1000);
+          result = sendATCommand(portASerial, "AT+SMCONF=\"CLEANSS\",1", 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
-          result = sendAT(portASerial, "AT+SMCONF=\"KEEPTIME\",180", 1000);
+          result = sendATCommand(portASerial, "AT+SMCONF=\"KEEPTIME\",180", 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
-          result = sendAT(portASerial, "AT+SMCONF=\"CLIENTID\",\"simmqtt\"", 1000);
+          result = sendATCommand(portASerial, "AT+SMCONF=\"CLIENTID\",\"" + String(clientId) + "\"", 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
-          result = sendAT(portASerial, "AT+SMCONN", 10000);
+          result = sendATCommand(portASerial, "AT+SMCONN", 10000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
-          result = sendAT(portASerial, "AT+SMSUB=\"testpublish\",1", 1000);
+          result = sendATCommand(portASerial, "AT+SMSTATE?", 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
 
-          result = sendAT(portASerial, "AT+SMPUB=\"testpublish\",11,1,0", 200);
+          /*
+          result = sendATCommand(portASerial, "AT+SMSUB=\"testpublish\",1", 1000);
+          ESP_LOGD(TAG, "result : %s", result.c_str());
+
+          result = sendATCommand(portASerial, "AT+SMPUB=\"testpublish\",11,1,0", 200);
           ESP_LOGD(TAG, "result : %s", result.c_str());
           
           result = sendFile(portASerial, "hello world", 1000);
           ESP_LOGD(TAG, "result : %s", result.c_str());
+           */
         }
       } else {
         ESP_LOGD(TAG, "GSM connect Failed\n");
