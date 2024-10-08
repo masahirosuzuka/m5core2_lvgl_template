@@ -25,9 +25,11 @@
 #define GSM_AUTOBAUD_MAX 115200
 #include <TinyGSM.h>
 
+#include "sim7080g_client.hpp"
+
 #define JST 3600 * 9
 
-static const char *TAG = "main";
+static const char * TAG = "main";
 
 HardwareSerial portASerial(2);
 
@@ -84,7 +86,7 @@ static const char *modemPrivateKeyFileName = "key.pem";
 // SIMCOM 7080G/7090GはAmazonRootCaを使えない？？？
 //
 static const char *awsClass2RootFileName = "awsClass2Root.crt";
-static const char *awsClass2Root = 
+PROGMEM static const char *awsClass2Root = 
 "-----BEGIN CERTIFICATE-----" \
 "MIIEDzCCAvegAwIBAgIBADANBgkqhkiG9w0BAQUFADBoMQswCQYDVQQGEwJVUzEl" \
 "MCMGA1UEChMcU3RhcmZpZWxkIFRlY2hub2xvZ2llcywgSW5jLjEyMDAGA1UECxMp" \
@@ -110,9 +112,9 @@ static const char *awsClass2Root =
 "WQPJIrSPnNVeKtelttQKbfi3QBFGmh95DmK/D5fs4C8fF5Q=" \
 "-----END CERTIFICATE-----";
 
-char command[64] = {0};
-TinyGsm modem(portASerial);
+//TinyGsm modem(portASerial);
 //TinyGsmClient gsmClient(modem);
+SIM7080GClient sim7080gClient;
 
 // MQTT
 static const char *urlKey = "url";
@@ -371,7 +373,19 @@ static void IRAM_ATTR onTimer() {
   }
 }
 
-String sendATCommand(Stream& serial, String message, int wait) {
+/*
+int sendATCommand(Stream& serial, const char * message, char * response, int responseSize, int wait) {
+  serial.println(message);
+  delay(wait);
+  int index = 0;
+  while (serial.available() && index < responseSize) {
+    response[index++] = (char)serial.read();
+  }
+  return index;
+}
+ */
+/*
+String sendATCommand(Stream& serial, const char * message, int wait) {
   serial.println(message);
   delay(wait);
   String response;
@@ -380,7 +394,19 @@ String sendATCommand(Stream& serial, String message, int wait) {
   }
   return response;
 }
-
+ */
+/*
+int sendFile(Stream& serial, const char * file, char * response, int responseSize, int wait) {
+  serial.write(file);
+  delay(wait);
+  int index = 0;
+  while (serial.available() && index < responseSize) {
+    response[index++] = (char)serial.read();
+  }
+  return index;
+}
+ */
+/*
 String sendFile(Stream& serial, const char * file, int wait) {
   serial.write(file);
   delay(wait);
@@ -390,6 +416,7 @@ String sendFile(Stream& serial, const char * file, int wait) {
   }
   return response;
 }
+ */
 
 class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice *advertisedDevice) {
@@ -523,136 +550,181 @@ void setup() {
   // Setup Mobile Network
   if (gsmPort > gsmPortNone) {
     ESP_LOGD(TAG, "Setup GSM");
+
+    char command[128];
+    char response[128];
+    int result;
+
     portASerial.begin(115200, SERIAL_8N1, 33, 32, false);
-    TinyGsmAutoBaud(portASerial, GSM_AUTOBAUD_MIN, GSM_AUTOBAUD_MAX);
-    modem.restart();
-    if (modem.init()) {
-      if ((strlen(apn) > 0) && (strlen(apnUser) > 0) && (strlen(apnPass) > 0)) {
-        if (modem.getSimStatus()) {
-          if (!modem.isNetworkConnected()) {
-            modem.setNetworkMode(2);   // 2: Automatic
-            modem.setPreferredMode(1); // 1: Cat-M only
-            modem.waitForNetwork();
-            if (modem.isNetworkConnected()) {
-              if (!modem.isGprsConnected()) {
-                modem.gprsConnect(apn, apnUser, apnPass);
-                modem.waitForNetwork();
-                if (!modem.isGprsConnected()) {
-                  if (modem.isGprsConnected()) {
-                    ESP_LOGD(TAG, "GSM connect OK\n");
-                    ESP_LOGD(TAG, "SIM CCID: %s", modem.getSimCCID().c_str());
-                    ESP_LOGD(TAG, "IMEI: %s", modem.getIMEI().c_str());
-                    ESP_LOGD(TAG, "Operator: %s", modem.getOperator().c_str());
-                    ESP_LOGD(TAG, "Local IP: %s", modem.localIP().toString().c_str());
-                    ESP_LOGD(TAG, "Signal quality: %d", modem.getSignalQuality());
+    TinyGsmAutoBaud(portASerial, GSM_AUTOBAUD_MIN, GSM_AUTOBAUD_MAX); // これを入れると何故か動くようになる
+    ESP_LOGD(TAG, "portASerial baud : %d", portASerial.baudRate());
+    if (portASerial.baudRate() == 9600) {
+      ESP_LOGD(TAG, "Couldn't find GSM module");
+      goto finish_gsm_setup;
+    }
 
-                    if (tls) {
-                      String result;
+    // 動作確認
+    //sprintf(command, "AT");
+    //result = sendATCommand(portASerial, command, response, sizeof(response), 100);
+    //ESP_LOGD(TAG, "result : %d response : %s", result, response);
+    sim7080gClient.deviceConnected(portASerial);
 
-                      result = sendATCommand(portASerial, "AT", 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
+    if ((strlen(apn) > 0) && (strlen(apnUser) > 0) && (strlen(apnPass) > 0)) {
+      //sprintf(command, "AT+CGDCONT=1,\"IP\",\"%s\"", apn);
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-                      result = sendATCommand(portASerial, "AT+CFSINIT", 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
+      //sprintf(command, "AT+CGAUTH=1,3,\"%s\",\"%s\"", apnPass, apnUser);
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-                      //
-                      // TODO: urlにamazonaws.comが含まれていてかつmodemがSIM7080Gだった場合はRootCAとしてStarFieldのclass2root.crtを使う
-                      //
+      // DOCOMOに接続試す
+      //sprintf(command, "AT+COPS=1,2,\"44010\"");
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-                      /*
-                      String rootCaString = String(rootCA);
-                      rootCaString.trim();
-                      result = sendAT(portASerial, "AT+CFSWFILE=3,\"" + String(modemRootCaFileName) + "\",0," + String(rootCaString.length()) + ",1000", 100);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-                      result = sendFile(portASerial, rootCaString.c_str(), 1000);
-                      delay(1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-                      */
+      //sprintf(command, "AT+COPS=?");
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-                      String awsClass2RootString = String(awsClass2Root);
-                      awsClass2RootString.trim();
-                      result = sendATCommand(portASerial, "AT+CFSWFILE=3,\"" + String(awsClass2RootFileName) + "\",0," + String(awsClass2RootString.length()) + ",10000", 100);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-                      result = sendFile(portASerial, awsClass2RootString.c_str(), 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
+      // SIMカードチェック
+      //sprintf(command, "AT+CPIN?");
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
+      
+      // LTE onlyに設定
+      //sprintf(command, "AT+CNMP=38");
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-                      String certString = String(cert);
-                      certString.trim();
-                      result = sendATCommand(portASerial, "AT+CFSWFILE=3,\"" + String(modemCertFileName) + "\",0," + String(certString.length()) + ",10000", 200);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-                      result = sendFile(portASerial, certString.c_str(), 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
+      // Cat-M1 onlyに設定
+      //sprintf(command, "AT+CMNB=1");
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-                      String keyString = String(key);
-                      keyString.trim();
-                      result = sendATCommand(portASerial, "AT+CFSWFILE=3,\"" + String(modemPrivateKeyFileName) + "\",0," + String(keyString.length()) + ",10000", 200);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-                      result = sendFile(portASerial, keyString.c_str(), 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
+      // APN接続確認
+      //sprintf(command, "AT+CGNAPN");
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-                      result = sendATCommand(portASerial, "AT+CFSTERM", 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
+      // PDPコンテキスト起動
+      //sprintf(command, "AT+CNACT=0,1");
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-                      result = sendATCommand(portASerial, "AT+CSSLCFG=\"CONVERT\",2,\"" + String(awsClass2RootFileName) + "\"", 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-
-                      result = sendATCommand(portASerial, "AT+CSSLCFG=\"CONVERT\",1,\"" + String(modemCertFileName) + "\",\"" + String(modemPrivateKeyFileName) + "\"", 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-
-                      result = sendATCommand(portASerial, "AT+SMSSL=1,\"" + String(awsClass2RootFileName) + "\",\"" + String(modemCertFileName) + "\"", 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-
-                      result = sendATCommand(portASerial, "AT+CSSLCFG=\"sslversion\",0,3", 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-
-                      result = sendATCommand(portASerial, "AT+SMCONF=\"URL\"," + String(url) + "," + String(port), 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-
-                      result = sendATCommand(portASerial, "AT+SMCONF=\"CLEANSS\",1", 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-
-                      result = sendATCommand(portASerial, "AT+SMCONF=\"KEEPTIME\",180", 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-
-                      result = sendATCommand(portASerial, "AT+SMCONF=\"CLIENTID\",\"" + String(clientId) + "\"", 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-
-                      result = sendATCommand(portASerial, "AT+SMCONN", 10000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-
-                      result = sendATCommand(portASerial, "AT+SMSTATE?", 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-
-                      /*
-                      result = sendATCommand(portASerial, "AT+SMSUB=\"testpublish\",1", 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-
-                      result = sendATCommand(portASerial, "AT+SMPUB=\"testpublish\",11,1,0", 200);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-
-                      result = sendFile(portASerial, "hello world", 1000);
-                      ESP_LOGD(TAG, "result : %s", result.c_str());
-                      */
-                    }
-                  } else {
-                    ESP_LOGD(TAG, "Gprs connect failed\n");
-                  }
-                }
-              } else {
-                ESP_LOGD(TAG, "Network connect failed\n");
-              }
-            }
-          } else {
-            ESP_LOGD(TAG, "GSM connect Failed\n");
-          }
-        }
-      } else {
-        ESP_LOGD(TAG, "SIM card not inserted\n");
+      if (sim7080gClient.SIMReady(portASerial)) {
+        sim7080gClient.connectAPN(portASerial, apn, apnUser, apnPass);
       }
-    } else {
-      ESP_LOGD(TAG, "Modem initialize Failed\n");
+
+      // google.comにPINGを3回送信
+      //sprintf(command, "AT+SNPING4=\"google.com\",2,16,1000");
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+      if (tls) {
+        /*
+        sprintf(command, "AT+CFSINIT");
+        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+        ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+        sprintf(command, "AT+CFSWFILE=3,\"%s\",0,\"%d\",1000", awsClass2RootFileName, sizeof(awsClass2Root), 100);
+        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+        ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+        result = sendFile(portASerial, awsClass2Root, response, sizeof(response), 1000);
+        ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+        sprintf(command, "AT+CFSWFILE=3,\"%s\",0,\"%d\",1000", modemCertFileName, sizeof(cert), 100);
+        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+        ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+        result = sendFile(portASerial, cert, response, sizeof(response), 1000);
+        ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+        sprintf(command, "AT+CFSWFILE=3,\"%s\",0,\"%d\",1000", modemPrivateKeyFileName, sizeof(key), 100);
+        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+        ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+        result = sendFile(portASerial, key, response, sizeof(response), 1000);
+        ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+        sprintf(command, "AT+CFSTERM");
+        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+        ESP_LOGD(TAG, "result : %d response : %s", result, response);
+         */
+        sim7080gClient.setCaCert(portASerial, awsClass2RootFileName, awsClass2Root, strlen(awsClass2Root));
+        sim7080gClient.setCert(portASerial, modemCertFileName, cert, certSize);
+        sim7080gClient.setKey(portASerial, modemPrivateKeyFileName, key, keySize);
+
+        /*
+        sprintf(command, "AT+CSSLCFG=\"CONVERT\",2,\"%s\"", awsClass2RootFileName);
+        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+        ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+        sprintf(command, "AT+CSSLCFG=\"CONVERT\",1,\"%s\",\"%s\"", modemCertFileName, modemPrivateKeyFileName);
+        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+        ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+        sprintf(command, "AT+SMSSL=1,\"%s\",\"%s\"", awsClass2RootFileName, modemCertFileName);
+        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+        ESP_LOGD(TAG, "result : %d response : %s", result, response);
+         */
+        sim7080gClient.useTLS(portASerial, awsClass2RootFileName, modemCertFileName, modemPrivateKeyFileName);
+
+        //sprintf(command, "AT+CSSLCFG=\"sslversion\",0,3");
+        //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+        //ESP_LOGD(TAG, "result : %d response : %s", result, response);
+        sim7080gClient.setSSLVersion(portASerial, 3);
+      }
+
+      //sprintf(command, "AT+SMCONF=\"URL\",%s,%d", url, port);
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
+      sim7080gClient.setServer(portASerial, url, port);
+
+      //sprintf(command, "AT+SMCONF=\"CLEANSS\",1");
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
+      sim7080gClient.setCleanness(portASerial, true);
+
+      //sprintf(command, "AT+SMCONF=\"KEEPTIME\",180");
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
+      sim7080gClient.setKeeptime(portASerial, 180);
+
+      /*
+      sprintf(command, "AT+SMCONF=\"CLIENTID\",\"%s\"", clientId);
+      result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
+      ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+      sprintf(command, "AT+SMCONN");
+      result = sendATCommand(portASerial, command, response, sizeof(response), 10000);
+      ESP_LOGD(TAG, "result : %d response : %s", result, response);
+       */
+      sim7080gClient.connect(portASerial, clientId);
+
+      //sprintf(command, "AT+SMSTATE?");
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 10000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
+      if (sim7080gClient.connected(portASerial)) {
+        const char * testmessage = "Hello, world";
+        sim7080gClient.publish(portASerial, "testpublish", testmessage, strlen(testmessage), 1, 0);
+      }
+
+      //sprintf(command, "AT+SMSUB=\"testpublish\",1");
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 10000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+      //sprintf(command, "AT+SMPUB=\"testpublish\",11,1,0");
+      //result = sendATCommand(portASerial, command, response, sizeof(response), 10000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+      //result = sendFile(portASerial, "Hello, world", response, sizeof(response), 1000);
+      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
     }
   }
+
+finish_gsm_setup:
 
   // Setup PortA
   if (gsmPort != gsmPortA) {
