@@ -428,16 +428,11 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
         beacon.source = sourceTypeBeacon;
 
         char bluetoothAddress[bluetoothAddressLength + 1] = {0};
-        if (advertisedDevice->getAddress().toString().length() == (bluetoothAddressLength + 5)) {
-          int index = 0;
-          for (int i = 0; i < advertisedDevice->getAddress().toString().length(); i++) {
-            char ch = advertisedDevice->getAddress().toString()[i];
-            if (ch != ':') {
-              bluetoothAddress[index++] = toupper(ch);
-            }
-          }
-          sprintf(beacon.address, "%s", bluetoothAddress);
+        int index = 0;
+        for (int i = 5; i >= 0; i--) {
+          index += sprintf(&bluetoothAddress[index], "%02X", advertisedDevice->getAddress().getNative()[i]);
         }
+        sprintf(beacon.address, "%s", bluetoothAddress);
 
         char payload[advertisingPayloadLength + scanResponsePayloadLength + 1] = {0};
         if (advertisedDevice->getPayloadLength() < (advertisingPayloadLength + scanResponsePayloadLength)) {
@@ -556,7 +551,7 @@ void setup() {
     int result;
 
     portASerial.begin(115200, SERIAL_8N1, 33, 32, false);
-    TinyGsmAutoBaud(portASerial, GSM_AUTOBAUD_MIN, GSM_AUTOBAUD_MAX); // これを入れると何故か動くようになる
+    //TinyGsmAutoBaud(portASerial, GSM_AUTOBAUD_MIN, GSM_AUTOBAUD_MAX); // これを入れると何故か動くようになる
     ESP_LOGD(TAG, "portASerial baud : %d", portASerial.baudRate());
     if (portASerial.baudRate() == 9600) {
       ESP_LOGD(TAG, "Couldn't find GSM module");
@@ -567,7 +562,9 @@ void setup() {
     //sprintf(command, "AT");
     //result = sendATCommand(portASerial, command, response, sizeof(response), 100);
     //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-    sim7080gClient.deviceConnected(portASerial);
+    if (!sim7080gClient.deviceConnected(portASerial)) {
+      goto finish_gsm_setup;
+    }
 
     if ((strlen(apn) > 0) && (strlen(apnUser) > 0) && (strlen(apnPass) > 0)) {
       //sprintf(command, "AT+CGDCONT=1,\"IP\",\"%s\"", apn);
