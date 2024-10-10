@@ -20,10 +20,10 @@
 #include "lv_port_fs_sd.hpp"
 #include "time.h"
 
-//#define TINY_GSM_MODEM_SIM7080
-//#define GSM_AUTOBAUD_MIN 9600
-//#define GSM_AUTOBAUD_MAX 115200
-//#include <TinyGSM.h>
+#define TINY_GSM_MODEM_SIM7080
+#define GSM_AUTOBAUD_MIN 9600
+#define GSM_AUTOBAUD_MAX 115200
+#include <TinyGSM.h>
 
 #include "sim7080g_client.hpp"
 
@@ -114,7 +114,8 @@ PROGMEM static const char *awsClass2Root =
 
 //TinyGsm modem(portASerial);
 //TinyGsmClient gsmClient(modem);
-SIM7080GClient sim7080gClient;
+SIM7080GClient sim7080gClient = SIM7080GClient();
+bool gsmReady = false;
 
 // MQTT
 static const char *urlKey = "url";
@@ -194,8 +195,8 @@ struct Port {
 
   // ENV IV Unit
   // https://docs.m5stack.com/ja/unit/ENV%E2%85%A3%20Unit
-  SHT4X sht;
-  BMP280 bmp;
+  SHT4X sht = SHT4X();
+  BMP280 bmp = BMP280();
 };
 
 // Port A
@@ -320,11 +321,11 @@ static unsigned long getTime() {
   return now;
 }
 
-static String getWiFiMac() {
+static void getWiFiMac() {
   String wifiMac = WiFi.macAddress();
   wifiMac.replace(":", "");
   wifiMac.toUpperCase();
-  return wifiMac;
+  sprintf(macAddress, "%s", wifiMac.c_str());
 }
 
 static void updateSystemBar() {
@@ -373,51 +374,6 @@ static void IRAM_ATTR onTimer() {
   }
 }
 
-/*
-int sendATCommand(Stream& serial, const char * message, char * response, int responseSize, int wait) {
-  serial.println(message);
-  delay(wait);
-  int index = 0;
-  while (serial.available() && index < responseSize) {
-    response[index++] = (char)serial.read();
-  }
-  return index;
-}
- */
-/*
-String sendATCommand(Stream& serial, const char * message, int wait) {
-  serial.println(message);
-  delay(wait);
-  String response;
-  while (serial.available()) {
-    response += serial.readString();
-  }
-  return response;
-}
- */
-/*
-int sendFile(Stream& serial, const char * file, char * response, int responseSize, int wait) {
-  serial.write(file);
-  delay(wait);
-  int index = 0;
-  while (serial.available() && index < responseSize) {
-    response[index++] = (char)serial.read();
-  }
-  return index;
-}
- */
-/*
-String sendFile(Stream& serial, const char * file, int wait) {
-  serial.write(file);
-  delay(wait);
-  String response;
-  while (serial.available()) {
-    response += serial.readString();
-  }
-  return response;
-}
- */
-
 class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice *advertisedDevice) {
     int rssi = advertisedDevice->getRSSI();
@@ -461,6 +417,8 @@ void setup() {
   M5.begin(true, true, true, true);
   Serial.begin(115200);
 
+  getWiFiMac();
+
   // Restore preferences
   preferences.begin("m5core2_app", false);
   sprintf(ssid, "%s", preferences.getString(ssidKey, "").c_str());
@@ -476,7 +434,9 @@ void setup() {
   sprintf(url, "%s", preferences.getString(urlKey, "").c_str());
   port = preferences.getInt(portKey, port);
   tls = preferences.getBool(tlsKey, true);
-  sprintf(clientId, "%s", preferences.getString(clientIdKey, "m5stack-" + getWiFiMac()).c_str());
+  char defaultClientId[32] = {0};
+  sprintf(defaultClientId, "m5stack-%s", macAddress);
+  sprintf(clientId, "%s", preferences.getString(clientIdKey, defaultClientId));
   sprintf(topic, "%s", preferences.getString(topicKey).c_str(), "topic");
   ESP_LOGD(TAG, "mqttUrl : %s port : %d clientId : %s topic : %s\n", url, port, clientId, topic);
 
@@ -512,8 +472,6 @@ void setup() {
   preferences.end();
 
   // Setup WiFi
-  String wifiMac = getWiFiMac();
-  sprintf(macAddress, "%s", wifiMac.c_str());
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, googleDNS, googleDNS2);
   WiFi.begin(ssid, pass);
@@ -553,173 +511,47 @@ void setup() {
     int result;
 
     portASerial.begin(115200, SERIAL_8N1, 33, 32, false);
-    //TinyGsmAutoBaud(portASerial, GSM_AUTOBAUD_MIN, GSM_AUTOBAUD_MAX); // これを入れると何故か動くようになる
+    TinyGsmAutoBaud(portASerial, GSM_AUTOBAUD_MIN, GSM_AUTOBAUD_MAX); //これを入れると何故か動くようになる
     ESP_LOGD(TAG, "portASerial baud : %d", portASerial.baudRate());
     if (portASerial.baudRate() == 9600) {
       ESP_LOGD(TAG, "Couldn't find GSM module");
+      portASerial.end();
       goto finish_gsm_setup;
     }
 
     // 動作確認
-    //sprintf(command, "AT");
-    //result = sendATCommand(portASerial, command, response, sizeof(response), 100);
-    //ESP_LOGD(TAG, "result : %d response : %s", result, response);
     if (!sim7080gClient.deviceConnected(portASerial)) {
+      portASerial.end();
       goto finish_gsm_setup;
     }
 
     if ((strlen(apn) > 0) && (strlen(apnUser) > 0) && (strlen(apnPass) > 0)) {
-      //sprintf(command, "AT+CGDCONT=1,\"IP\",\"%s\"", apn);
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-      //sprintf(command, "AT+CGAUTH=1,3,\"%s\",\"%s\"", apnPass, apnUser);
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-      // DOCOMOに接続試す
-      //sprintf(command, "AT+COPS=1,2,\"44010\"");
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-      //sprintf(command, "AT+COPS=?");
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-      // SIMカードチェック
-      //sprintf(command, "AT+CPIN?");
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-      
-      // LTE onlyに設定
-      //sprintf(command, "AT+CNMP=38");
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-      // Cat-M1 onlyに設定
-      //sprintf(command, "AT+CMNB=1");
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-      // APN接続確認
-      //sprintf(command, "AT+CGNAPN");
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-      // PDPコンテキスト起動
-      //sprintf(command, "AT+CNACT=0,1");
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-      if (sim7080gClient.SIMReady(portASerial)) {
+      if (!sim7080gClient.SIMReady(portASerial)) {
         sim7080gClient.connectAPN(portASerial, apn, apnUser, apnPass);
+      } else {
+        portASerial.end();
+        goto finish_gsm_setup;
       }
 
-      // google.comにPINGを3回送信
-      //sprintf(command, "AT+SNPING4=\"google.com\",2,16,1000");
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
       if (tls) {
-        /*
-        sprintf(command, "AT+CFSINIT");
-        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-        ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-        sprintf(command, "AT+CFSWFILE=3,\"%s\",0,\"%d\",1000", awsClass2RootFileName, sizeof(awsClass2Root), 100);
-        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-        ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-        result = sendFile(portASerial, awsClass2Root, response, sizeof(response), 1000);
-        ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-        sprintf(command, "AT+CFSWFILE=3,\"%s\",0,\"%d\",1000", modemCertFileName, sizeof(cert), 100);
-        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-        ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-        result = sendFile(portASerial, cert, response, sizeof(response), 1000);
-        ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-        sprintf(command, "AT+CFSWFILE=3,\"%s\",0,\"%d\",1000", modemPrivateKeyFileName, sizeof(key), 100);
-        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-        ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-        result = sendFile(portASerial, key, response, sizeof(response), 1000);
-        ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-        sprintf(command, "AT+CFSTERM");
-        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-        ESP_LOGD(TAG, "result : %d response : %s", result, response);
-         */
         sim7080gClient.setCaCert(portASerial, awsClass2RootFileName, awsClass2Root, strlen(awsClass2Root));
         sim7080gClient.setCert(portASerial, modemCertFileName, cert, certSize);
         sim7080gClient.setKey(portASerial, modemPrivateKeyFileName, key, keySize);
-
-        /*
-        sprintf(command, "AT+CSSLCFG=\"CONVERT\",2,\"%s\"", awsClass2RootFileName);
-        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-        ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-        sprintf(command, "AT+CSSLCFG=\"CONVERT\",1,\"%s\",\"%s\"", modemCertFileName, modemPrivateKeyFileName);
-        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-        ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-        sprintf(command, "AT+SMSSL=1,\"%s\",\"%s\"", awsClass2RootFileName, modemCertFileName);
-        result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-        ESP_LOGD(TAG, "result : %d response : %s", result, response);
-         */
         sim7080gClient.useTLS(portASerial, awsClass2RootFileName, modemCertFileName, modemPrivateKeyFileName);
-
-        //sprintf(command, "AT+CSSLCFG=\"sslversion\",0,3");
-        //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-        //ESP_LOGD(TAG, "result : %d response : %s", result, response);
         sim7080gClient.setSSLVersion(portASerial, 3);
       }
 
-      //sprintf(command, "AT+SMCONF=\"URL\",%s,%d", url, port);
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
       sim7080gClient.setServer(portASerial, url, port);
-
-      //sprintf(command, "AT+SMCONF=\"CLEANSS\",1");
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
       sim7080gClient.setCleanness(portASerial, true);
-
-      //sprintf(command, "AT+SMCONF=\"KEEPTIME\",180");
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
       sim7080gClient.setKeeptime(portASerial, 180);
-
-      /*
-      sprintf(command, "AT+SMCONF=\"CLIENTID\",\"%s\"", clientId);
-      result = sendATCommand(portASerial, command, response, sizeof(response), 1000);
-      ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-      sprintf(command, "AT+SMCONN");
-      result = sendATCommand(portASerial, command, response, sizeof(response), 10000);
-      ESP_LOGD(TAG, "result : %d response : %s", result, response);
-       */
       sim7080gClient.connect(portASerial, clientId);
-
-      //sprintf(command, "AT+SMSTATE?");
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 10000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
       if (sim7080gClient.connected(portASerial)) {
         const char * testmessage = "Hello, world";
         sim7080gClient.publish(portASerial, "testpublish", testmessage, strlen(testmessage), 1, 0);
       }
 
-      //sprintf(command, "AT+SMSUB=\"testpublish\",1");
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 10000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
+      portASerial.end();
 
-      //sprintf(command, "AT+SMPUB=\"testpublish\",11,1,0");
-      //result = sendATCommand(portASerial, command, response, sizeof(response), 10000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-      //result = sendFile(portASerial, "Hello, world", response, sizeof(response), 1000);
-      //ESP_LOGD(TAG, "result : %d response : %s", result, response);
     }
   }
 
@@ -757,7 +589,6 @@ finish_gsm_setup:
   // Setup bluetooth
   NimBLEDevice::init("");
   bleScan = NimBLEDevice::getScan();
-  //bleScan->setAdvertisedDeviceCallbacks(new MyNimBLEAdvertisedDeviceCallbacks());
   bleScan->setAdvertisedDeviceCallbacks(&callbacks);
 
   queue = xQueueCreate(10, sizeof(Beacon));
