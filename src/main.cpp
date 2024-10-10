@@ -20,10 +20,10 @@
 #include "lv_port_fs_sd.hpp"
 #include "time.h"
 
-#define TINY_GSM_MODEM_SIM7080
-#define GSM_AUTOBAUD_MIN 9600
-#define GSM_AUTOBAUD_MAX 115200
-#include <TinyGSM.h>
+//#define TINY_GSM_MODEM_SIM7080
+//#define GSM_AUTOBAUD_MIN 9600
+//#define GSM_AUTOBAUD_MAX 115200
+//#include <TinyGSM.h>
 
 #include "sim7080g_client.hpp"
 
@@ -455,6 +455,8 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
   }
 };
 
+MyNimBLEAdvertisedDeviceCallbacks callbacks = MyNimBLEAdvertisedDeviceCallbacks();
+
 void setup() {
   M5.begin(true, true, true, true);
   Serial.begin(115200);
@@ -755,7 +757,8 @@ finish_gsm_setup:
   // Setup bluetooth
   NimBLEDevice::init("");
   bleScan = NimBLEDevice::getScan();
-  bleScan->setAdvertisedDeviceCallbacks(new MyNimBLEAdvertisedDeviceCallbacks());
+  //bleScan->setAdvertisedDeviceCallbacks(new MyNimBLEAdvertisedDeviceCallbacks());
+  bleScan->setAdvertisedDeviceCallbacks(&callbacks);
 
   queue = xQueueCreate(10, sizeof(Beacon));
 
