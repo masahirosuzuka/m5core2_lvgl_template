@@ -4,6 +4,8 @@
 //static const char * TAG;
 #define BUFFER_SIZE 64
 
+typedef void (*Callback)(const char *, const char *);
+
 class SIM7080GClient {
 private:
   const char * TAG = "sim7080g_client";
@@ -11,6 +13,8 @@ private:
   char response[BUFFER_SIZE];
   int result = 0;
   int pdpContext = 1;
+  char * subscribeTopic;
+  Callback subscribeCallback;
   int sendATCommand(Stream& serial, const char * message, char * response, int responseSize, int wait);
   int sendFile(Stream& serial, const char * file, char * response, int responseSize, int wait);
 public:
@@ -28,7 +32,7 @@ public:
   void connect(Stream& serial, const char * clientId);
   bool connected(Stream& serial);
   void publish(Stream& serial, const char * topic, const char * message, const int messageLength, int qos, int retain);
-  void subscribe(Stream& serial, const char * topic);
+  void subscribe(Stream& serial, char * topic, Callback onMessage);
   void mqttLoop(Stream& serial);
   void disconnect(Stream& serial, const char * topic);
 };
@@ -262,12 +266,49 @@ void SIM7080GClient::publish(Stream& serial, const char * topic, const char * me
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 }
 
-void SIM7080GClient::subscribe(Stream& serial, const char * topic) {
-
+void SIM7080GClient::subscribe(Stream& serial, char * topic, Callback onMessage) {
+  subscribeTopic = topic;
+  subscribeCallback = onMessage;
 }
 
 void SIM7080GClient::mqttLoop(Stream& serial) {
+  int index = 0;
+  while (serial.available() && index < BUFFER_SIZE) {
+    response[index++] = (char)serial.read();
+  }
+  response[index] = '\0';
 
+  char * p = strstr(response, "+SMSUB");
+
+  if (p) {
+    char topicBuffer[BUFFER_SIZE];
+    char bodybuffer[BUFFER_SIZE];
+
+    char *start;
+    char *end;
+
+    start = strchr(response, '"');
+    if (start != NULL) {
+        start++;
+        end = strchr(start, '"');
+        if (end != NULL) {
+            strncpy(topicBuffer, start, end - start);
+            topicBuffer[end - start] = '\0';
+        }
+    }
+
+    start = strchr(end + 1, '"');
+    if (start != NULL) {
+        start++;
+        end = strchr(start, '"');
+        if (end != NULL) {
+            strncpy(bodybuffer, start, end - start);
+            bodybuffer[end - start] = '\0';
+        }
+    }
+
+    subscribeCallback(topicBuffer, bodybuffer);
+  }
 }
 
 void SIM7080GClient::disconnect(Stream& serial, const char * topic) {
