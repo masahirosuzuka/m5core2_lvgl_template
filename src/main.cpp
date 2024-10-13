@@ -41,7 +41,6 @@ static const char *systemBarFormat = "%s %s %d%%";
 char systemBarText[16];
 
 // Status
-bool ready = false;
 static const char *booting = "Booting...";
 static const char *stopped = "Stopped...";
 static const char *running = "Running...";
@@ -63,6 +62,8 @@ static const IPAddress googleDNS2(8, 8, 4, 4);
 char macAddress[macAddressLength + 1] = {0};
 
 WiFiClientSecure wifiClientSecure = WiFiClientSecure();
+
+bool wifiReady = false;
 
 // Mobile
 static const char *gsmPortKey = "apnPort";
@@ -495,9 +496,9 @@ void setup() {
     mqttClient.connect(clientId);
     delay(1000);
     if (mqttClient.connected()) {
-      ready = true;
+      wifiReady = true;
     } else {
-      ready = false;
+      wifiReady = false;
     }
     mqttClient.disconnect();
   }
@@ -505,11 +506,6 @@ void setup() {
   // Setup Mobile Network
   if (gsmPort > gsmPortNone) {
     ESP_LOGD(TAG, "Setup GSM");
-
-    char command[128];
-    char response[128];
-    int result;
-
     portASerial.begin(115200, SERIAL_8N1, 33, 32, false);
     TinyGsmAutoBaud(portASerial, GSM_AUTOBAUD_MIN, GSM_AUTOBAUD_MAX); //これを入れると何故か動くようになる
     ESP_LOGD(TAG, "portASerial baud : %d", portASerial.baudRate());
@@ -527,11 +523,11 @@ void setup() {
 
     if ((strlen(apn) > 0) && (strlen(apnUser) > 0) && (strlen(apnPass) > 0)) {
       if (!sim7080gClient.SIMReady(portASerial)) {
-        sim7080gClient.connectAPN(portASerial, apn, apnUser, apnPass);
-      } else {
         portASerial.end();
         goto finish_gsm_setup;
       }
+
+      sim7080gClient.connectAPN(portASerial, apn, apnUser, apnPass);
 
       if (tls) {
         sim7080gClient.setCaCert(portASerial, awsClass2RootFileName, awsClass2Root, strlen(awsClass2Root));
@@ -545,13 +541,15 @@ void setup() {
       sim7080gClient.setCleanness(portASerial, true);
       sim7080gClient.setKeeptime(portASerial, 180);
       sim7080gClient.connect(portASerial, clientId);
+      
       if (sim7080gClient.connected(portASerial)) {
-        const char * testmessage = "Hello, world";
-        sim7080gClient.publish(portASerial, "testpublish", testmessage, strlen(testmessage), 1, 0);
+        gsmReady = true;
+        portASerial.end(); //TODO: あとで消す
+      } else {
+        gsmReady = false;
+        portASerial.end();
+        goto finish_gsm_setup;
       }
-
-      portASerial.end();
-
     }
   }
 
@@ -727,7 +725,7 @@ finish_gsm_setup:
   lv_obj_add_event_cb(
       wifiSaveButton,
       [](lv_event_t *event) {
-        ready = false;
+        wifiReady = false;
 
         lv_dropdown_get_selected_str(ssidDropdown, ssid, 33);
         sprintf(pass, "%s\0", lv_textarea_get_text(passwordTextarea), 65);
@@ -907,7 +905,7 @@ finish_gsm_setup:
       mqttSaveButton,
       [](lv_event_t *event) {
         ESP_LOGD(TAG, "mqttSaveButton\n");
-        ready = false;
+        wifiReady = false;
 
         sprintf(url, "%s", lv_textarea_get_text(urlTextarea));
         port = atoi(lv_textarea_get_text(portTextarea));
@@ -996,7 +994,7 @@ finish_gsm_setup:
   lv_obj_add_event_cb(
       certSaveButton,
       [](lv_event_t *event) {
-        ready = false;
+        wifiReady = false;
 
         static const char *buttons[] = {okText, cancelText, ""};
         messageBox = lv_msgbox_create(NULL, saveText, "Certification files", buttons, true);
@@ -1235,7 +1233,7 @@ void loop() {
   lv_tick_inc(5);
   lv_task_handler();
 
-  if (ready) {
+  if (wifiReady || gsmReady) {
     if (WiFi.isConnected()) {
       if (mqttClient.connected()) {
         if (queue != NULL) {
