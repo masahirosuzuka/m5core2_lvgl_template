@@ -34,7 +34,7 @@ public:
   void publish(Stream& serial, const char * topic, const char * message, const int messageLength, int qos, int retain);
   void subscribe(Stream& serial, char * topic, Callback onMessage);
   void mqttLoop(Stream& serial);
-  void disconnect(Stream& serial, const char * topic);
+  void disconnect(Stream& serial);
 };
 
 int SIM7080GClient::sendATCommand(Stream& serial, const char * message, char * response, int responseSize, int wait) {
@@ -78,7 +78,7 @@ bool SIM7080GClient::SIMReady(Stream& serial) {
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-  if (strstr(response, "OK")) {
+  if (strstr(response, "+CPIN: READY")) {
     return true;
   }
 
@@ -116,9 +116,9 @@ void SIM7080GClient::connectAPN(Stream& serial, const char * apn, const char * u
   //ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
   // SIMカードチェック
-  sprintf(command, "AT+CPIN?");
-  result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
-  ESP_LOGD(TAG, "result : %d response : %s", result, response);
+  //sprintf(command, "AT+CPIN?");
+  //result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
+  //ESP_LOGD(TAG, "result : %d response : %s", result, response);
       
   // LTE onlyに設定
   sprintf(command, "AT+CNMP=38");
@@ -239,6 +239,10 @@ void SIM7080GClient::setSSLVersion(Stream& serial, int version) {
 }
 
 void SIM7080GClient::connect(Stream& serial, const char * clientId) {
+  sprintf(command, "AT+SMCONF=\"CLIENTID\",\"%s\"", clientId);
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
+  ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
   sprintf(command, "AT+SMCONN");
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 10000);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
@@ -250,7 +254,7 @@ bool SIM7080GClient::connected(Stream& serial) {
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
   // チェック
-  if (strstr(response, "OK")) {
+  if (strstr(response, "+SMSTATE: 1")) {
     return true;
   }
 
@@ -311,7 +315,7 @@ void SIM7080GClient::mqttLoop(Stream& serial) {
   }
 }
 
-void SIM7080GClient::disconnect(Stream& serial, const char * topic) {
+void SIM7080GClient::disconnect(Stream& serial) {
   sprintf(command, "AT+SMDISC");
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 10000);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
