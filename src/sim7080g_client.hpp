@@ -21,6 +21,7 @@ public:
   bool deviceConnected(Stream& serial);
   bool SIMReady(Stream& serial);
   void connectAPN(Stream& serial, const char * apn, const char * user, const char * pass);
+  bool isOnline(Stream& serial);
   void setServer(Stream& serial, const char * url, const int port);
   void setKeeptime(Stream& serial, const int keeptime);
   void setCleanness(Stream& serial, bool cleanness);
@@ -139,6 +140,18 @@ void SIM7080GClient::connectAPN(Stream& serial, const char * apn, const char * u
   sprintf(command, "AT+CNACT=0,1");
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
+}
+
+bool SIM7080GClient::isOnline(Stream& serial) {
+  sprintf(command, "AT+CNACT?");
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 100);
+  ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+  if (strstr(response, "Online")) {
+    return true;
+  }
+
+  return false;
 }
 
 void SIM7080GClient::setServer(Stream& serial, const char * url, const int port) {

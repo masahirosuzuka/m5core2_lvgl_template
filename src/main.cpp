@@ -528,6 +528,10 @@ void setup() {
       }
 
       sim7080gClient.connectAPN(portASerial, apn, apnUser, apnPass);
+      if (!sim7080gClient.isOnline(portASerial)) {
+        portASerial.end();
+        goto finish_gsm_setup;
+      }
 
       if (tls) {
         sim7080gClient.setCaCert(portASerial, awsClass2RootFileName, awsClass2Root, strlen(awsClass2Root));
@@ -541,7 +545,7 @@ void setup() {
       sim7080gClient.setCleanness(portASerial, true);
       sim7080gClient.setKeeptime(portASerial, 180);
       sim7080gClient.connect(portASerial, clientId);
-      
+
       if (sim7080gClient.connected(portASerial)) {
         gsmReady = true;
         portASerial.end(); //TODO: あとで消す
@@ -1234,8 +1238,8 @@ void loop() {
   lv_task_handler();
 
   if (wifiReady || gsmReady) {
-    if (WiFi.isConnected()) {
-      if (mqttClient.connected()) {
+    if (WiFi.isConnected() || sim7080gClient.isOnline(portASerial)) {
+      if (mqttClient.connected() || sim7080gClient.connected(portASerial)) {
         if (queue != NULL) {
           while (uxQueueMessagesWaiting(queue)) {
             struct Beacon beacon;
@@ -1270,7 +1274,9 @@ void loop() {
 
               serializeJson(messageJson, message);
               ESP_LOGD(TAG, "%s\n", message);
-              mqttClient.publish(topic, message);
+              if (mqttClient.connected()) {
+                mqttClient.publish(topic, message);
+              }
               delay(1);
             }
           }
@@ -1289,22 +1295,26 @@ void loop() {
           bleScan->start(scanTime, NULL, false);
         }
       } else {
-        mqttClient.disconnect();
-        mqttClient.setServer(url, port);
-        mqttClient.setCallback(mqttCallback);
-        if (mqttClient.connect(clientId)) {
-          mqttClient.subscribe(notificationTopic);
-        } else {
-          if (retry++ > 100) {
-            ESP_LOGE(TAG,"Reboot\n");
-            ESP.restart();
+        if (!mqttClient.connected()) {
+          mqttClient.disconnect();
+          mqttClient.setServer(url, port);
+          mqttClient.setCallback(mqttCallback);
+          if (mqttClient.connect(clientId)) {
+            mqttClient.subscribe(notificationTopic);
+          } else {
+            if (retry++ > 100) {
+              ESP_LOGE(TAG,"Reboot\n");
+              ESP.restart();
+            }
           }
+          delay(500);
         }
-        delay(500);
       }
     } else {
-      WiFi.begin(ssid, pass);
-      WiFi.waitForConnectResult();
+      if (!WiFi.isConnected()) {
+        WiFi.begin(ssid, pass);
+        WiFi.waitForConnectResult();
+      }
     }
 
     if (gsmPort != gsmPortA) {
