@@ -147,7 +147,8 @@ bool SIM7080GClient::isOnline(Stream& serial) {
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 100);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-  if (strstr(response, "Online")) {
+  //if (strstr(response, "Online")) {
+  if (strstr(response, "+CNACT: 0,1")) {
     return true;
   }
 
