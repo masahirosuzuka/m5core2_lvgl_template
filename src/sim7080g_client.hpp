@@ -280,8 +280,10 @@ void SIM7080GClient::publish(Stream& serial, const char * topic, const char * me
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 100);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-  result = sendFile(serial, message, response, BUFFER_SIZE, 10000);
-  ESP_LOGD(TAG, "result : %d response : %s", result, response);
+  if (strstr(response, ">")) {
+    result = sendFile(serial, message, response, BUFFER_SIZE, 1);
+    ESP_LOGD(TAG, "result : %d response : %s", result, response);
+  }
 }
 
 void SIM7080GClient::subscribe(Stream& serial, char * topic, Callback onMessage) {
