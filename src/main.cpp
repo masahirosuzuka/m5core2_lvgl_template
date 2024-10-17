@@ -379,7 +379,7 @@ class MyNimBLEAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
   void onResult(NimBLEAdvertisedDevice *advertisedDevice) {
     int rssi = advertisedDevice->getRSSI();
     if (rssi >= rssiThreshold) {
-      if (mqttClient.connected()) {
+      if (mqttClient.connected() || gsmReady) {
         struct Beacon beacon;
 
         beacon.source = sourceTypeBeacon;
@@ -511,24 +511,28 @@ void setup() {
     ESP_LOGD(TAG, "portASerial baud : %d", portASerial.baudRate());
     if (portASerial.baudRate() == 9600) {
       ESP_LOGD(TAG, "Couldn't find GSM module");
+      gsmReady = false;
       portASerial.end();
       goto finish_gsm_setup;
     }
 
     // 動作確認
     if (!sim7080gClient.deviceConnected(portASerial)) {
+      gsmReady = false;
       portASerial.end();
       goto finish_gsm_setup;
     }
 
     if ((strlen(apn) > 0) && (strlen(apnUser) > 0) && (strlen(apnPass) > 0)) {
       if (!sim7080gClient.SIMReady(portASerial)) {
+        gsmReady = false;
         portASerial.end();
         goto finish_gsm_setup;
       }
 
       sim7080gClient.connectAPN(portASerial, apn, apnUser, apnPass);
       if (!sim7080gClient.isOnline(portASerial)) {
+        gsmReady = false;
         portASerial.end();
         goto finish_gsm_setup;
       }
@@ -548,7 +552,7 @@ void setup() {
 
       if (sim7080gClient.connected(portASerial)) {
         gsmReady = true;
-        portASerial.end(); //TODO: あとで消す
+        //portASerial.end(); //TODO: あとで消す
       } else {
         gsmReady = false;
         portASerial.end();
@@ -1237,9 +1241,9 @@ void loop() {
   lv_tick_inc(5);
   lv_task_handler();
 
-  if (wifiReady || gsmReady) {
-    if (WiFi.isConnected() || sim7080gClient.isOnline(portASerial)) {
-      if (mqttClient.connected() || sim7080gClient.connected(portASerial)) {
+  if (gsmReady || wifiReady) {
+    if (WiFi.isConnected() || /*sim7080gClient.isOnline(portASerial)*/ gsmReady) {
+      if (mqttClient.connected() || /*sim7080gClient.connected(portASerial)*/ gsmReady) {
         if (queue != NULL) {
           while (uxQueueMessagesWaiting(queue)) {
             struct Beacon beacon;
@@ -1272,9 +1276,11 @@ void loop() {
               messageJson["battery"] = getBatLevel();
               messageJson["timestamp"] = beacon.timestamp;
 
-              serializeJson(messageJson, message);
+              int messageLength = serializeJson(messageJson, message);
               ESP_LOGD(TAG, "%s\n", message);
-              if (mqttClient.connected()) {
+              if (/*sim7080gClient.connected(portASerial)*/ gsmReady) {
+                sim7080gClient.publish(portASerial, topic, message, messageLength, 0, 0);
+              } else if (mqttClient.connected()) {
                 mqttClient.publish(topic, message);
               }
               delay(1);
