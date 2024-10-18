@@ -37,7 +37,7 @@ HardwareSerial portASerial(2);
 Preferences preferences;
 
 // SystemBar
-static const char *systemBarFormat = "%s %s %d%%";
+static const char *systemBarFormat = "%s %s %s %d%%";
 char systemBarText[16];
 
 // Status
@@ -331,9 +331,10 @@ static void getWiFiMac() {
 
 static void updateSystemBar() {
   if (systemBar != NULL) {
-    bool connected = WiFi.isConnected();
+    bool gsmConnected = gsmReady;
+    bool wifiConnected = WiFi.isConnected();
     int battLevel = getBatLevel();
-    sprintf(systemBarText, systemBarFormat, ((portA.type == gpsUnit) && portA.ready) ? LV_SYMBOL_GPS : " ", connected ? LV_SYMBOL_WIFI : " ", battLevel);
+    sprintf(systemBarText, systemBarFormat, ((portA.type == gpsUnit) && portA.ready) ? LV_SYMBOL_GPS : " ", gsmConnected ? LV_SYMBOL_CALL : " ", wifiConnected ? LV_SYMBOL_WIFI : " ", battLevel);
     lv_label_set_text(systemBar, systemBarText);
   }
 }
@@ -1262,6 +1263,7 @@ void loop() {
                     JsonObject gpsJson = portAJson["gps"].to<JsonObject>();
                     gpsJson["latitude"] = portA.gps.location.lat();
                     gpsJson["longitude"] = portA.gps.location.lng();
+                    gpsJson["fixed_time"] = portA.gps.time.value();
                   }
 
                   if (portA.type == env4Unit) {
