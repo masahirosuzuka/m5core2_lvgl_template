@@ -36,6 +36,13 @@ public:
   void subscribe(Stream& serial, char * topic, Callback onMessage);
   void mqttLoop(Stream& serial);
   void disconnect(Stream& serial);
+  /*
+  void gpsPowerOn();
+  void gpsPowerOff();
+  double getLat();
+  double getLng();
+  char *  getFixedTime();
+   */
 };
 
 int SIM7080GClient::sendATCommand(Stream& serial, const char * message, char * response, int responseSize, int wait) {
@@ -88,16 +95,16 @@ bool SIM7080GClient::SIMReady(Stream& serial) {
 
 void SIM7080GClient::connectAPN(Stream& serial, const char * apn, const char * user, const char * pass) {
   sprintf(command, "AT+CGDCONT=1,\"IP\",\"%s\"", apn);
-  result = sendATCommand(serial, command, response, BUFFER_SIZE, 5000);
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
   sprintf(command, "AT+CGAUTH=1,3,\"%s\",\"%s\"", pass, user);
-  result = sendATCommand(serial, command, response, BUFFER_SIZE, 30000);
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 10000);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
   // DOCOMOに接続試す
   sprintf(command, "AT+COPS=1,2,\"44010\"");
-  result = sendATCommand(serial, command, response, BUFFER_SIZE, 30000);
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 10000);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
   /*
@@ -182,8 +189,10 @@ void SIM7080GClient::setCaCert(Stream& serial, const char *fileName, const char 
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 100);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-  result = sendFile(serial, caCert, response, BUFFER_SIZE, 1000);
-  ESP_LOGD(TAG, "result : %d response : %s", result, response);
+  if (strstr(response, ">")) {
+    result = sendFile(serial, caCert, response, BUFFER_SIZE, 1000);
+    ESP_LOGD(TAG, "result : %d response : %s", result, response);
+  }
 
   sprintf(command, "AT+CFSTERM");
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
@@ -199,8 +208,10 @@ void SIM7080GClient::setCert(Stream& serial, const char *fileName, const char * 
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 100);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-  result = sendFile(serial, cert, response, BUFFER_SIZE, 1000);
-  ESP_LOGD(TAG, "result : %d response : %s", result, response);
+  if (strstr(response, ">")) {
+    result = sendFile(serial, cert, response, BUFFER_SIZE, 1000);
+    ESP_LOGD(TAG, "result : %d response : %s", result, response);
+  }
 
   sprintf(command, "AT+CFSTERM");
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
@@ -215,9 +226,11 @@ void SIM7080GClient::setKey(Stream& serial, const char *fileName, const char * k
   sprintf(command, "AT+CFSWFILE=3,\"%s\",0,%d,1000", fileName, keySize);
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 100);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-  result = sendFile(serial, key, response, BUFFER_SIZE, 1000);
-  ESP_LOGD(TAG, "result : %d response : %s", result, response);
+  
+  if (strstr(response, ">")) {
+    result = sendFile(serial, key, response, BUFFER_SIZE, 1000);
+    ESP_LOGD(TAG, "result : %d response : %s", result, response);
+  }
 
   sprintf(command, "AT+CFSTERM");
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
