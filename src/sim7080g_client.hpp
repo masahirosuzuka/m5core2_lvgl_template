@@ -17,6 +17,9 @@ private:
   Callback subscribeCallback;
   int sendATCommand(Stream& serial, const char * message, char * response, int responseSize, int wait);
   int sendFile(Stream& serial, const char * file, char * response, int responseSize, int wait);
+  double latitude;
+  double longitude;
+  char * fixedTime;
 public:
   bool deviceConnected(Stream& serial);
   bool SIMReady(Stream& serial);
@@ -36,13 +39,12 @@ public:
   void subscribe(Stream& serial, char * topic, Callback onMessage);
   void mqttLoop(Stream& serial);
   void disconnect(Stream& serial);
-  /*
-  void gpsPowerOn();
-  void gpsPowerOff();
-  double getLat();
-  double getLng();
-  char *  getFixedTime();
-   */
+  void gpsPowerOn(Stream& serial);
+  void gpsPowerOff(Stream& serial);
+  void updateLatLng(Stream& serial);
+  double getLat(Stream& serial);
+  double getLng(Stream& serial);
+  char * getFixedTime(Stream& serial);
 };
 
 int SIM7080GClient::sendATCommand(Stream& serial, const char * message, char * response, int responseSize, int wait) {
@@ -122,11 +124,6 @@ void SIM7080GClient::connectAPN(Stream& serial, const char * apn, const char * u
   //sprintf(command, "AT+COPS=?");
   //result = sendATCommand(serial, command, response, BUFFER_SIZE, 10000);
   //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-  // SIMカードチェック
-  //sprintf(command, "AT+CPIN?");
-  //result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
-  //ESP_LOGD(TAG, "result : %d response : %s", result, response);
       
   // LTE onlyに設定
   sprintf(command, "AT+CNMP=38");
@@ -137,11 +134,6 @@ void SIM7080GClient::connectAPN(Stream& serial, const char * apn, const char * u
   sprintf(command, "AT+CMNB=1");
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-  // APN接続確認
-  //sprintf(command, "AT+CGNAPN");
-  //result = sendATCommand(serial, command, response, BUFFER_SIZE, 10000);
-  //ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
   // Application Networkを起動
   sprintf(command, "AT+CNACT=0,1");
@@ -189,10 +181,8 @@ void SIM7080GClient::setCaCert(Stream& serial, const char *fileName, const char 
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 100);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-  if (strstr(response, ">")) {
-    result = sendFile(serial, caCert, response, BUFFER_SIZE, 1000);
-    ESP_LOGD(TAG, "result : %d response : %s", result, response);
-  }
+  result = sendFile(serial, caCert, response, BUFFER_SIZE, 1000);
+  ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
   sprintf(command, "AT+CFSTERM");
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
@@ -208,10 +198,8 @@ void SIM7080GClient::setCert(Stream& serial, const char *fileName, const char * 
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 100);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-  if (strstr(response, ">")) {
-    result = sendFile(serial, cert, response, BUFFER_SIZE, 1000);
-    ESP_LOGD(TAG, "result : %d response : %s", result, response);
-  }
+  result = sendFile(serial, cert, response, BUFFER_SIZE, 1000);
+  ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
   sprintf(command, "AT+CFSTERM");
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
@@ -227,10 +215,8 @@ void SIM7080GClient::setKey(Stream& serial, const char *fileName, const char * k
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 100);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
   
-  if (strstr(response, ">")) {
-    result = sendFile(serial, key, response, BUFFER_SIZE, 1000);
-    ESP_LOGD(TAG, "result : %d response : %s", result, response);
-  }
+  result = sendFile(serial, key, response, BUFFER_SIZE, 1000);
+  ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
   sprintf(command, "AT+CFSTERM");
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
@@ -238,10 +224,6 @@ void SIM7080GClient::setKey(Stream& serial, const char *fileName, const char * k
 }
 
 void SIM7080GClient::useTLS(Stream& serial, const char * caCertName, const char * certName, const char * keyName) {
-  //sprintf(command, "AT+CFSINIT");
-  //result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
-  //ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
   sprintf(command, "AT+CSSLCFG=\"CONVERT\",2,\"%s\"", caCertName);
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
@@ -253,10 +235,6 @@ void SIM7080GClient::useTLS(Stream& serial, const char * caCertName, const char 
   sprintf(command, "AT+SMSSL=1,\"%s\",\"%s\"", caCertName, certName);
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
-
-  //sprintf(command, "AT+CFSTERM");
-  //result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
-  //ESP_LOGD(TAG, "result : %d response : %s", result, response);
 }
 
 void SIM7080GClient::setSSLVersion(Stream& serial, int version) {
@@ -348,4 +326,32 @@ void SIM7080GClient::disconnect(Stream& serial) {
   sprintf(command, "AT+SMDISC");
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 10000);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
+}
+
+void SIM7080GClient::gpsPowerOn(Stream& serial) {
+  sprintf(command, "AT+CGNSPWR=1");
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 10000);
+  ESP_LOGD(TAG, "result : %d response : %s", result, response);
+}
+
+void SIM7080GClient::gpsPowerOff(Stream& serial) {
+  sprintf(command, "AT+CGNSPWR=0");
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 10000);
+  ESP_LOGD(TAG, "result : %d response : %s", result, response);
+}
+
+void SIM7080GClient::updateLatLng(Stream& serial) {
+  
+}
+
+double SIM7080GClient::getLat(Stream& serial) {
+  return latitude;
+}
+
+double SIM7080GClient::getLng(Stream& serial) {
+  return longitude;
+}
+
+char * SIM7080GClient::getFixedTime(Stream& serialå) {
+  return fixedTime;
 }

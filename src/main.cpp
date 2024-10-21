@@ -341,7 +341,7 @@ static void updateSystemBar() {
 
 static void updateStatus() {
   if (connectionStatus != NULL) {
-    if (WiFi.isConnected() && mqttClient.connected()) {
+    if ((WiFi.isConnected() && mqttClient.connected()) || gsmReady) {
       lv_label_set_text(connectionStatus, running);
     } else {
       lv_label_set_text(connectionStatus, stopped);
@@ -561,6 +561,7 @@ void setup() {
       }
     }
   }
+  ESP_LOGD(TAG, "gsm setup done");
 
 finish_gsm_setup:
 
@@ -591,7 +592,7 @@ finish_gsm_setup:
   }
 
   int battLevel = getBatLevel();
-  sprintf(systemBarText, systemBarFormat, ((portA.type == gpsUnit) && portA.ready) ? LV_SYMBOL_GPS : " ", WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
+  sprintf(systemBarText, systemBarFormat, ((portA.type == gpsUnit) && portA.ready) ? LV_SYMBOL_GPS : " ", gsmReady ? LV_SYMBOL_CALL : " " , WiFi.isConnected() ? LV_SYMBOL_WIFI : " ", battLevel);
 
   // Setup bluetooth
   NimBLEDevice::init("");
