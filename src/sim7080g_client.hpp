@@ -143,7 +143,7 @@ void SIM7080GClient::connectAPN(Stream& serial, const char * apn, const char * u
 
 bool SIM7080GClient::isOnline(Stream& serial) {
   sprintf(command, "AT+CNACT?");
-  result = sendATCommand(serial, command, response, BUFFER_SIZE, 200);
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 300);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
   if (strstr(response, "+CNACT: 0,1")) {
