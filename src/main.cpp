@@ -117,6 +117,7 @@ PROGMEM static const char *awsClass2Root =
 //TinyGsmClient gsmClient(modem);
 SIM7080GClient sim7080gClient = SIM7080GClient();
 bool gsmReady = false;
+bool gsmGPSReady = false;
 
 // MQTT
 static const char *urlKey = "url";
@@ -562,6 +563,10 @@ void setup() {
     }
   }
   ESP_LOGD(TAG, "gsm setup done");
+
+  ESP_LOGD(TAG, "gsm gps test");
+  sim7080gClient.gpsPowerOn(portASerial);
+  sim7080gClient.updateLatLng(portASerial);
 
 finish_gsm_setup:
 
@@ -1282,6 +1287,7 @@ void loop() {
               int messageLength = serializeJson(messageJson, message);
               ESP_LOGD(TAG, "%s\n", message);
               if (/*sim7080gClient.connected(portASerial)*/ gsmReady) {
+                sim7080gClient.updateLatLng(portASerial);
                 sim7080gClient.publish(portASerial, topic, message, messageLength, 0, 0);
               } else if (mqttClient.connected()) {
                 mqttClient.publish(topic, message);

@@ -17,8 +17,8 @@ private:
   Callback subscribeCallback;
   int sendATCommand(Stream& serial, const char * message, char * response, int responseSize, int wait);
   int sendFile(Stream& serial, const char * file, char * response, int responseSize, int wait);
-  double latitude;
-  double longitude;
+  double latitude = -1.0;
+  double longitude = -1.0;
   char * fixedTime;
 public:
   bool deviceConnected(Stream& serial);
@@ -143,10 +143,9 @@ void SIM7080GClient::connectAPN(Stream& serial, const char * apn, const char * u
 
 bool SIM7080GClient::isOnline(Stream& serial) {
   sprintf(command, "AT+CNACT?");
-  result = sendATCommand(serial, command, response, BUFFER_SIZE, 100);
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 200);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-  //if (strstr(response, "Online")) {
   if (strstr(response, "+CNACT: 0,1")) {
     return true;
   }
@@ -330,18 +329,20 @@ void SIM7080GClient::disconnect(Stream& serial) {
 
 void SIM7080GClient::gpsPowerOn(Stream& serial) {
   sprintf(command, "AT+CGNSPWR=1");
-  result = sendATCommand(serial, command, response, BUFFER_SIZE, 10000);
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 }
 
 void SIM7080GClient::gpsPowerOff(Stream& serial) {
   sprintf(command, "AT+CGNSPWR=0");
-  result = sendATCommand(serial, command, response, BUFFER_SIZE, 10000);
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 }
 
 void SIM7080GClient::updateLatLng(Stream& serial) {
-  
+  sprintf(command, "AT+CGNSINF");
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 200);
+  ESP_LOGD(TAG, "result : %d response : %s", result, response);
 }
 
 double SIM7080GClient::getLat(Stream& serial) {
@@ -352,6 +353,6 @@ double SIM7080GClient::getLng(Stream& serial) {
   return longitude;
 }
 
-char * SIM7080GClient::getFixedTime(Stream& serialå) {
+char * SIM7080GClient::getFixedTime(Stream& serial) {
   return fixedTime;
 }
