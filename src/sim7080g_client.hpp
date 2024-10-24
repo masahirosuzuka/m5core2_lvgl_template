@@ -1,8 +1,7 @@
 #include <string.h>
 #include <M5Core2.h>
 
-//static const char * TAG;
-#define BUFFER_SIZE 64
+#define BUFFER_SIZE 256
 
 typedef void (*Callback)(const char *, const char *);
 
@@ -19,8 +18,9 @@ private:
   int sendFile(Stream& serial, const char * file, char * response, int responseSize, int wait);
   double latitude = -1.0;
   double longitude = -1.0;
-  char * fixedTime;
+  char fixedTime[32];
 public:
+  void reset(Stream& serial);
   bool deviceConnected(Stream& serial);
   bool SIMReady(Stream& serial);
   void connectAPN(Stream& serial, const char * apn, const char * user, const char * pass);
@@ -46,6 +46,12 @@ public:
   double getLng(Stream& serial);
   char * getFixedTime(Stream& serial);
 };
+
+void SIM7080GClient::reset(Stream& serial) {
+  sprintf(command, "AT+CRESET");
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 1000);
+  ESP_LOGD(TAG, "result : %d response : %s", result, response);
+}
 
 int SIM7080GClient::sendATCommand(Stream& serial, const char * message, char * response, int responseSize, int wait) {
   serial.println(message);
@@ -254,7 +260,7 @@ void SIM7080GClient::connect(Stream& serial, const char * clientId) {
 
 bool SIM7080GClient::connected(Stream& serial) {
   sprintf(command, "AT+SMSTATE?");
-  result = sendATCommand(serial, command, response, BUFFER_SIZE, 10000);
+  result = sendATCommand(serial, command, response, BUFFER_SIZE, 500);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
   // チェック
@@ -271,7 +277,7 @@ void SIM7080GClient::publish(Stream& serial, const char * topic, const char * me
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
   if (strstr(response, ">")) {
-    result = sendFile(serial, message, response, BUFFER_SIZE, 1);
+    result = sendFile(serial, message, response, BUFFER_SIZE, 100);
     ESP_LOGD(TAG, "result : %d response : %s", result, response);
   }
 }
@@ -343,6 +349,49 @@ void SIM7080GClient::updateLatLng(Stream& serial) {
   sprintf(command, "AT+CGNSINF");
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 200);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
+
+  if (strstr(response, "ERROR")) {
+    latitude = 0.0;
+    longitude = 0.0;
+    return;
+  }
+
+  char field[32];
+  int fieldIndex = 0;
+  int fieldCount = 0;
+
+  for (int i = 0; i < result; i++) {
+    if (response[i] == ',' || response[i] == '\r') {
+      field[fieldIndex] = '\0';
+      fieldCount++;
+
+      ESP_LOGD(TAG, "field %d : %s", fieldCount, field);
+
+      if (fieldCount == 2) {
+        if (atoi(field) == 0) {
+          return;
+        }
+      }
+
+      if (fieldCount == 4) {
+        strcpy(fixedTime, field);
+      }
+
+      if (fieldCount == 5) {
+        latitude = atof(field);
+      }
+
+      if (fieldCount == 6) {
+        longitude = atof(field);
+      }
+
+      fieldIndex = 0;
+    } else {
+      field[fieldIndex++] = response[i];
+    }
+  }
+
+  ESP_LOGD(TAG, "time : %s, lat : %lf, lng : %lf", fixedTime, latitude, longitude);
 }
 
 double SIM7080GClient::getLat(Stream& serial) {
