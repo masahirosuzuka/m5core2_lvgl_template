@@ -549,7 +549,7 @@ void setup() {
 
       sim7080gClient.setServer(portASerial, url, port);
       sim7080gClient.setCleanness(portASerial, true);
-      sim7080gClient.setKeeptime(portASerial, 180);
+      sim7080gClient.setKeeptime(portASerial, 1200);
       sim7080gClient.connect(portASerial, clientId);
 
       if (sim7080gClient.connected(portASerial)) {
