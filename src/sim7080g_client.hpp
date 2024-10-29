@@ -16,8 +16,8 @@ private:
   Callback subscribeCallback;
   int sendATCommand(Stream& serial, const char * message, char * response, int responseSize, int wait);
   int sendFile(Stream& serial, const char * file, char * response, int responseSize, int wait);
-  double latitude = -1.0;
-  double longitude = -1.0;
+  double latitude = 0.0;
+  double longitude = 0.0;
   char fixedTime[32];
 public:
   void reset(Stream& serial);
