@@ -263,7 +263,6 @@ bool SIM7080GClient::connected(Stream& serial) {
   result = sendATCommand(serial, command, response, BUFFER_SIZE, 500);
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
-  // チェック
   if (strstr(response, "+SMSTATE: 1")) {
     return true;
   }
@@ -277,7 +276,7 @@ void SIM7080GClient::publish(Stream& serial, const char * topic, const char * me
   ESP_LOGD(TAG, "result : %d response : %s", result, response);
 
   if (strstr(response, ">")) {
-    result = sendFile(serial, message, response, BUFFER_SIZE, 100);
+    result = sendFile(serial, message, response, BUFFER_SIZE, 500);
     ESP_LOGD(TAG, "result : %d response : %s", result, response);
   }
 }
