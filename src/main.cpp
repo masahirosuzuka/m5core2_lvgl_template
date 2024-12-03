@@ -133,7 +133,7 @@ bool tls;
 char clientId[32];
 char topic[32];
 static const char *notificationTopic = "notify";
-char message[512];
+char message[1024];
 JsonDocument messageJson;
 static const int sourceTypeBeacon = 0;
 static const int sourceTypeTimer = 1;
@@ -1248,7 +1248,7 @@ void loop() {
   lv_tick_inc(5);
   lv_task_handler();
 
-  if (gsmReady || wifiReady) {
+  if (wifiReady || gsmReady) {
     if (WiFi.isConnected() || /*sim7080gClient.isOnline(portASerial)*/ gsmReady) {
       if (mqttClient.connected() || /*sim7080gClient.connected(portASerial)*/ gsmReady) {
         if (queue != NULL) {
