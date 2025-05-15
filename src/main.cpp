@@ -113,8 +113,6 @@ PROGMEM static const char *awsClass2Root =
 "WQPJIrSPnNVeKtelttQKbfi3QBFGmh95DmK/D5fs4C8fF5Q=" \
 "-----END CERTIFICATE-----";
 
-//TinyGsm modem(portASerial);
-//TinyGsmClient gsmClient(modem);
 SIM7080GClient sim7080gClient = SIM7080GClient();
 bool gsmReady = false;
 bool gsmGPSReady = false;
@@ -140,7 +138,6 @@ static const int sourceTypeTimer = 1;
 int retry = 0;
 
 PubSubClient mqttClient = PubSubClient(wifiClientSecure);
-//PubSubClient gsmMqttClient = PubSubClient(gsmClient);
 
 // Cert
 static const char *rootCAKey = "rootCA";
@@ -1249,8 +1246,8 @@ void loop() {
   lv_task_handler();
 
   if (wifiReady || gsmReady) {
-    if (WiFi.isConnected() || /*sim7080gClient.isOnline(portASerial)*/ gsmReady) {
-      if (mqttClient.connected() || /*sim7080gClient.connected(portASerial)*/ gsmReady) {
+    if (WiFi.isConnected() || gsmReady) {
+      if (mqttClient.connected() || gsmReady) {
         if (queue != NULL) {
           while (uxQueueMessagesWaiting(queue)) {
             struct Beacon beacon;
@@ -1286,7 +1283,7 @@ void loop() {
 
               int messageLength = serializeJson(messageJson, message);
               ESP_LOGD(TAG, "%s\n", message);
-              if (/*sim7080gClient.connected(portASerial)*/ gsmReady) {
+              if (gsmReady) {
                 sim7080gClient.updateLatLng(portASerial);
                 sim7080gClient.publish(portASerial, topic, message, messageLength, 0, 0);
               } else if (mqttClient.connected()) {
